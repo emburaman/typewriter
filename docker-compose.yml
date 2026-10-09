@@ -1,0 +1,39 @@
+# Development stack: hot-reloading app + MySQL.
+#   docker compose up --build        → http://localhost:4000
+name: typewriter-dev
+
+services:
+  app:
+    build:
+      context: .
+      target: dev
+    env_file: .env.local
+    environment:
+      NODE_ENV: development
+      DB_HOST: db # service name on the compose network (overrides .env.local)
+    ports:
+      - "4000:4000"
+    volumes:
+      - .:/app
+      # Keep the container's own node_modules / build cache instead of the host's.
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.4
+    env_file: .env.local # MYSQL_* variables
+    ports:
+      - "3306:3306" # exposed so `npm run dev` on the host can use this database too
+    volumes:
+      - mysql-dev-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mysql-dev-data:

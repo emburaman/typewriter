@@ -1,0 +1,90 @@
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { getPool } from "../db/pool.js";
+import type { DocumentRecord, DocumentSummary, EditorJson } from "../../lib/shared/schemas.js";
+
+interface DocumentRow extends RowDataPacket {
+  id: string;
+  title: string;
+  content_json: unknown;
+  content_html: string;
+  word_count: number;
+  drive_file_id: string | null;
+  drive_synced_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+function rowToSummary(row: DocumentRow): DocumentSummary {
+  return {
+    id: row.id,
+    title: row.title,
+    wordCount: row.word_count,
+    updatedAt: row.updated_at.toISOString(),
+    driveFileId: row.drive_file_id,
+    driveSyncedAt: iso(row.drive_synced_at),
+  };
+}
+
+function rowToRecord(row: DocumentRow): DocumentRecord {
+  return {
+    ...rowToSummary(row),
+    contentJson: row.content_json as EditorJson,
+    contentHtml: row.content_html,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+export async function listDocuments(): Promise<DocumentSummary[]> {
+  const [rows] = await getPool().execute<DocumentRow[]>(
+    `SELECT id, title, word_count, drive_file_id, drive_synced_at, updated_at
+       FROM documents ORDER BY updated_at DESC`,
+  );
+  return rows.map(rowToSummary);
+}
+
+export async function findDocument(id: string): Promise<DocumentRecord | null> {
+  const [rows] = await getPool().execute<DocumentRow[]>("SELECT * FROM documents WHERE id = ?", [id]);
+  const row = rows[0];
+  return row ? rowToRecord(row) : null;
+}
+
+export interface DocumentFields {
+  title: string;
+  contentJson: EditorJson;
+  contentHtml: string;
+  wordCount: number;
+}
+
+/**
+ * Inserts or updates a document. Ids are client-generated UUIDs so a draft can exist
+ * in the browser before it ever reaches the server. Returns whether a row was created.
+ */
+export async function upsertDocument(id: string, fields: DocumentFields): Promise<{ created: boolean }> {
+  const [result] = await getPool().execute<ResultSetHeader>(
+    `INSERT INTO documents (id, title, content_json, content_html, word_count)
+          VALUES (?, ?, ?, ?, ?) AS incoming
+     ON DUPLICATE KEY UPDATE
+          title = incoming.title,
+          content_json = incoming.content_json,
+          content_html = incoming.content_html,
+          word_count = incoming.word_count,
+          updated_at = CURRENT_TIMESTAMP`,
+    [id, fields.title, JSON.stringify(fields.contentJson), fields.contentHtml, fields.wordCount],
+  );
+  // MySQL reports 1 affected row for an insert, 2 for an update (0 if nothing changed).
+  return { created: result.affectedRows === 1 };
+}
+
+export async function markDriveSynced(id: string, driveFileId: string): Promise<void> {
+  await getPool().execute(
+    "UPDATE documents SET drive_file_id = ?, drive_synced_at = CURRENT_TIMESTAMP, updated_at = updated_at WHERE id = ?",
+    [driveFileId, id],
+  );
+}
+
+export async function deleteDocument(id: string): Promise<boolean> {
+  const [result] = await getPool().execute<ResultSetHeader>("DELETE FROM documents WHERE id = ?", [id]);
+  return result.affectedRows > 0;
+}

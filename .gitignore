@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# .env.example, .env.local (throwaway dev values) and .env.production (CHANGE_ME
+# template) are committed as templates. Real secrets belong in untracked overrides:
+.env
+.env.*.local
+
+.DS_Store
+npm-debug.log*
+test-results/
+playwright-report/
