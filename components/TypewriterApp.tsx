@@ -12,6 +12,7 @@ import {
   writeDraft,
 } from "@/lib/editor/drafts";
 import { countWords, createExtensions, toEditorContent } from "@/lib/editor/extensions";
+import { countParagraphs, countVisualLines } from "@/lib/editor/stats";
 import { AUTOSAVE_INTERVAL_MS, type DocumentRecord, type EditorJson } from "@/lib/shared/schemas";
 import { soundForKey } from "@/lib/sound/keySounds";
 import { newUuid } from "@/lib/uuid";
@@ -27,6 +28,7 @@ import { Toolbar } from "./Toolbar";
 import { useToast } from "./ToastProvider";
 
 const timeOf = (t: number | string) => new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function TypewriterApp() {
@@ -51,7 +53,7 @@ export function TypewriterApp() {
   const [docId, setDocId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(true);
-  const [wordCount, setWordCount] = useState(0);
+  const [stats, setStats] = useState({ words: 0, paragraphs: 0, lines: 0 });
   const [serverDirty, setServerDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [localSavedAt, setLocalSavedAt] = useState<number | null>(null);
@@ -71,7 +73,7 @@ export function TypewriterApp() {
   const folderIdRef = useRef<string | null>(null);
   const titleRef = useRef("");
   const savingRef = useRef(false);
-  const wordTimer = useRef<number | undefined>(undefined);
+  const statsTimer = useRef<number | undefined>(undefined);
   const storageWarned = useRef(false);
 
   const isServerDirty = () => revision.current !== serverRevision.current;
@@ -81,10 +83,22 @@ export function TypewriterApp() {
     setServerDirty(true);
   }, []);
 
-  const scheduleWordCount = useCallback((ed: Editor) => {
-    window.clearTimeout(wordTimer.current);
-    wordTimer.current = window.setTimeout(() => setWordCount(countWords(ed.getText())), 250);
+  const computeStats = useCallback((ed: Editor) => {
+    setStats({
+      words: countWords(ed.getText()),
+      paragraphs: countParagraphs(ed.state.doc),
+      lines: countVisualLines(ed.view.dom),
+    });
   }, []);
+
+  /** Debounced: counting lines measures the layout, so don't do it on every keystroke. */
+  const scheduleStats = useCallback(
+    (ed: Editor) => {
+      window.clearTimeout(statsTimer.current);
+      statsTimer.current = window.setTimeout(() => computeStats(ed), 250);
+    },
+    [computeStats],
+  );
 
   const editor = useEditor({
     extensions,
@@ -97,7 +111,7 @@ export function TypewriterApp() {
     onUpdate: ({ editor: ed }) => {
       markChanged();
       setTyping(true);
-      scheduleWordCount(ed);
+      scheduleStats(ed);
     },
   });
 
@@ -219,7 +233,7 @@ export function TypewriterApp() {
       setServerDirty(dirty);
       setServerSavedAt(server?.updatedAt ?? null);
       setLocalSavedAt(draft?.savedAt ?? null);
-      setWordCount(countWords(editor.getText()));
+      computeStats(editor);
       setLoading(false);
       editor.setEditable(true);
       editor.commands.focus("end");
@@ -233,7 +247,7 @@ export function TypewriterApp() {
         });
       }
     },
-    [editor, toast],
+    [editor, toast, computeStats],
   );
 
   // Initial load once the editor exists.
@@ -242,6 +256,14 @@ export function TypewriterApp() {
     const existing = getCurrentDocId();
     void loadDocument(existing ?? newUuid(), !existing);
   }, [editor, loadDocument]);
+
+  // Line counts depend on layout: recount when the page width, font or font size changes.
+  useEffect(() => {
+    if (!editor) return;
+    const observer = new ResizeObserver(() => scheduleStats(editor));
+    observer.observe(editor.view.dom);
+    return () => observer.disconnect();
+  }, [editor, scheduleStats, settings.fontFamily, settings.fontSize]);
 
   // Autosave to browser storage every 5 seconds.
   useEffect(() => {
@@ -393,7 +415,8 @@ export function TypewriterApp() {
           {settings.storageProvider === "google_drive" && <Icon name="cloud" size={12} />} {status}
         </span>
         <span>
-          {wordCount} {wordCount === 1 ? "word" : "words"}
+          {plural(stats.paragraphs, "paragraph")} · <span title="Lines as wrapped on screen">{plural(stats.lines, "line")}</span> ·{" "}
+          {plural(stats.words, "word")}
         </span>
       </footer>
 

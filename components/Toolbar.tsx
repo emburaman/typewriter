@@ -103,6 +103,19 @@ export function Toolbar({ editor, colors, onLink, onMedia }: ToolbarProps) {
       </div>
 
       <div className="toolbar-group" aria-label="Font colors">
+        <button
+          type="button"
+          className="swatch swatch-default"
+          aria-pressed={s.color === null}
+          aria-label="Default text color"
+          title={`Default text color (${mod}0)`}
+          onMouseDown={keepFocus}
+          onClick={() => clearColor(editor)}
+        >
+          <span className="swatch-key" aria-hidden="true">
+            0
+          </span>
+        </button>
         {colors.map((color, i) => {
           const active = s.color?.toLowerCase() === color.toLowerCase();
           return (
@@ -123,9 +136,6 @@ export function Toolbar({ editor, colors, onLink, onMedia }: ToolbarProps) {
             </button>
           );
         })}
-        <ToolButton label="Default text color" shortcut={`${mod}0`} onClick={() => clearColor(editor)}>
-          <Icon name="eraser" size={16} />
-        </ToolButton>
       </div>
 
       <div className="toolbar-group">

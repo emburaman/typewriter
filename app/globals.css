@@ -321,6 +321,10 @@ code {
   cursor: pointer;
   padding: 0;
 }
+/* Swatch 0: whatever the theme's default text color is (follows light/dark). */
+.swatch-default {
+  --swatch: var(--text);
+}
 .swatch[aria-pressed="true"] {
   box-shadow: 0 0 0 2px var(--text);
 }

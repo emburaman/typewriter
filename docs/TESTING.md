@@ -14,7 +14,7 @@
 - [ ] Title → `Enter` moves into the body without losing characters typed quickly
 - [ ] `Ctrl+B`, `Ctrl+I`, `Ctrl+U` toggle on the selection and at the cursor
 - [ ] `Ctrl+1`…`Ctrl+5` apply palette colors in order. Pressing the same shortcut again returns to the default color
-- [ ] `Ctrl+0` and the eraser button return to the default color
+- [ ] `Ctrl+0` and swatch 0 (left of color 1) return to the default color. Swatch 0 shows the theme's text color in light and dark, and is highlighted while no color is applied
 - [ ] With 3 palette colors, `Ctrl+4` does nothing in the editor
 - [ ] `1. ` → numbered list; `7. ` → list starting at 7; `- ` → bulleted list
 - [ ] `Tab` directly after the bullet/number nests; `Shift+Tab` un-nests; `Tab` mid-text inserts a tab
@@ -51,6 +51,10 @@
 - [ ] ⋯ → Move to… lists every folder except the item itself and its sub-folders
 - [ ] Delete a folder that has contents → they appear in the parent folder
 - [ ] Reopen the panel → expanded folders are remembered, and the open document's folder is expanded
+
+**Status bar counts**
+- [ ] Two paragraphs and a heading → "3 paragraphs"; empty lines and footnotes don't change the count
+- [ ] A paragraph long enough to wrap counts as several lines; narrowing the window or raising the font size increases the line count
 
 **Saving**
 - [ ] The status bar changes to "Unsaved · browser draft hh:mm" within 5 s of typing

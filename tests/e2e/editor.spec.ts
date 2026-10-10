@@ -394,3 +394,52 @@ test("files panel: folders, new document in a folder, drag and drop, move dialog
 
   await cleanFolders(request);
 });
+
+/* ------------------------------------------------------------------ */
+/* Status bar counts and default color swatch                          */
+/* ------------------------------------------------------------------ */
+
+test("status bar shows paragraph, line and word counts; lines follow wrapping", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await openEditor(page);
+  await page.keyboard.type("## Heading");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Short one.");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter"); // a blank paragraph doesn't count
+  await page.keyboard.type("word ".repeat(40).trim()); // long enough to wrap
+  const bar = page.locator(".statusbar");
+  await expect(bar).toContainText("3 paragraphs");
+  await expect(bar).toContainText("43 words");
+
+  const lines = async () => Number(/(\d+) lines?/.exec(await bar.innerText())?.[1]);
+  await expect.poll(lines).toBeGreaterThan(3); // heading + short line + several wrapped lines
+  const wide = await lines();
+  await page.setViewportSize({ width: 500, height: 800 });
+  await expect.poll(lines).toBeGreaterThan(wide);
+});
+
+test("swatch 0 sits before color 1, shows the theme's text color and resets the color", async ({ page }) => {
+  await openEditor(page);
+  const swatches = page.locator('[aria-label="Font colors"] .swatch');
+  await expect(swatches.first()).toHaveAttribute("aria-label", "Default text color");
+  await expect(swatches.nth(1)).toHaveAttribute("aria-label", /^Color 1/);
+  await expect(page.locator(".toolbar svg + svg")).toHaveCount(0); // eraser icon is gone
+
+  const swatchColor = () => swatches.first().evaluate((el) => getComputedStyle(el).backgroundColor);
+  const textColor = () => page.locator(".editor-content").evaluate((el) => getComputedStyle(el).color);
+  expect(await swatchColor()).toBe(await textColor());
+
+  await page.keyboard.press("ControlOrMeta+2");
+  await page.keyboard.type("blue");
+  await expect(swatches.first()).toHaveAttribute("aria-pressed", "false");
+  await swatches.first().click();
+  await page.keyboard.type(" plain");
+  await expect(swatches.first()).toHaveAttribute("aria-pressed", "true");
+  expect(await editorHtml(page)).toMatch(/blue<\/span> plain/);
+
+  await page.locator('button[aria-label^="Theme"]').click(); // system → light
+  await page.locator('button[aria-label^="Theme"]').click(); // light → dark
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await swatchColor()).toBe(await textColor());
+});

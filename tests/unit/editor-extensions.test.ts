@@ -117,3 +117,15 @@ describe("markdown input", () => {
     expect(e.getHTML()).not.toContain("javascript");
   });
 });
+
+describe("paragraph count", () => {
+  it("counts non-empty text blocks, ignoring blanks and footnotes", async () => {
+    const { countParagraphs } = await import("../../lib/editor/stats");
+    const e = make("<h2>Title</h2><p>One</p><p></p><ul><li><p>a</p></li><li><p>b</p></li></ul><blockquote><p>q</p></blockquote><pre><code>x\ny</code></pre>");
+    expect(countParagraphs(e.state.doc)).toBe(6);
+    e.commands.setTextSelection(3);
+    insertFootnote(e);
+    e.commands.insertContent("a note");
+    expect(countParagraphs(e.state.doc)).toBe(6);
+  });
+});

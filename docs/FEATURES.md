@@ -22,7 +22,13 @@
   *Settings → Appearance*. A small script runs before the page renders and applies the theme from
   the browser's copy of your settings, so dark mode never flashes white.
 - The status bar shows whether the document is saved, the time of the last browser draft or server
-  save, and the word count. An amber dot means the server copy is behind.
+  save, and counts for the open document:
+  - **paragraphs**: non-empty text blocks (paragraphs, headings, list items, quotes, code blocks);
+  - **lines**: lines of text as currently wrapped on screen, like Word's line count. It changes
+    with the window width, font and font size;
+  - **words**.
+
+  Blank lines and footnotes don't count as paragraphs or lines. An amber dot means the server copy is behind.
 
 ## 1.1 Typewriter sound
 
@@ -64,7 +70,7 @@ See the README for the Google Cloud setup.
 | Italic | *I* | `Ctrl+I` |
 | Underline | U | `Ctrl+U` |
 | Font color *n* (1–5) | colored dots, numbered | `Ctrl+n` (fallback `Alt+n`). Press it again to go back to the default color. |
-| Default color | eraser | `Ctrl+0` |
+| Default color | swatch **0**, left of color 1, filled with the theme's text color | `Ctrl+0` |
 | Bulleted list | • list | type `- ` at the start of a line (`* ` and `+ ` also work) |
 | Numbered list | 1. list | type `1. ` at the start of a line. Any number works: `3. ` starts the list at 3. |
 | Nest list item | — | `Tab` right after the bullet or number (or with text selected in a list) |

@@ -101,7 +101,7 @@ The chosen family is loaded with a `fonts.googleapis.com/css2` `<link>`.
   `preventDefault`, which wins in current Chromium and Firefox while the editor has focus;
   `Alt+1…5` is offered as a fallback for browsers or OS setups that reserve them anyway.
 * **Default palette** uses mid-tone colors (no black) so every swatch stays legible in both light
-  and dark themes; "default text color" is a separate action (`Ctrl+0`, eraser button).
+  and dark themes; "default text color" is a separate action (`Ctrl+0`, swatch "0" showing the theme's text color).
 * **Revision counters** (not content diffing) track "unsaved locally" vs "unsaved on server", so
   autosave and the unload guard cost nothing per keystroke.
 * **Editor schema**: TipTap StarterKit (headings 1–6, quote, rule, code, code block, link) plus
