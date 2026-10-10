@@ -75,6 +75,7 @@ curl -X PUT localhost:4000/api/settings -H 'content-type: application/json' \
 interface DocumentSummary {
   id: string;                  // UUID
   title: string;
+  folderId: string | null;     // null = top level
   wordCount: number;
   updatedAt: string;           // ISO 8601
   driveFileId: string | null;
@@ -87,6 +88,7 @@ interface DocumentRecord extends DocumentSummary {
 }
 interface DocumentWrite {      // request body for POST / PUT
   title?: string;              // ≤255, default "Untitled"
+  folderId?: string | null;    // only applied when the document is created
   contentJson: { type: "doc", ... };
   contentHtml: string;         // ≤4,000,000 chars
   wordCount?: number;          // default 0
@@ -98,7 +100,7 @@ interface DocumentSaveResult {
 ```
 
 ### `GET /api/documents` → `200 DocumentSummary[]`
-Sorted by most recently updated.
+Sorted by title.
 
 ### `POST /api/documents`
 Creates a document with a server-generated id.
@@ -112,8 +114,16 @@ Creates a document with a server-generated id.
 the browser keeps the same id when it's first saved.
 → `201 DocumentSaveResult` (created) · `200 DocumentSaveResult` (updated) · `400`
 
+`folderId` is applied only when this request creates the document (a new draft saved inside a
+folder). Later saves never move it, so a save from an open editor can't undo a move made in the
+Files panel. Use `PATCH` to move. `400` if the folder doesn't exist.
+
 If `storageProvider` is `google_drive`, the document is also uploaded to Drive. A Drive failure
 **doesn't** fail the request: the MySQL save is kept and `drive.status` is `"failed"` with a message.
+
+### `PATCH /api/documents/{id}`
+Moves a document. Body: `{"folderId": "<folder uuid>" | null}` (`null` = top level).
+→ `200 DocumentRecord` · `400` (validation error, or the folder doesn't exist) · `404`
 
 ### `POST /api/documents/{id}/drive-sync`
 Uploads the stored document to Drive now, whatever `storageProvider` is set to.
@@ -121,6 +131,41 @@ Uploads the stored document to Drive now, whatever `storageProvider` is set to.
 
 ### `DELETE /api/documents/{id}`
 Deletes the server copy. A Drive copy, if any, is left in place.
+→ `204` · `404`
+
+---
+
+## Folders
+
+Folders form a tree through `parentId` (`null` = top level). Folder and document names don't
+have to be unique.
+
+```ts
+interface Folder {
+  id: string;            // UUID
+  name: string;          // 1–255 chars
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### `GET /api/folders` → `200 Folder[]`
+A flat list sorted by name. Clients build the tree from `parentId`.
+
+### `POST /api/folders`
+Body: `{"name": "Novel", "parentId": null}` (`parentId` is optional).
+→ `201 Folder` with a `Location` header · `400` (validation error, or the parent doesn't exist)
+
+### `PATCH /api/folders/{id}`
+Renames and/or moves a folder. Body: `{"name"?: string, "parentId"?: string | null}`. At least one
+field is required, and unknown keys are rejected.
+→ `200 Folder` · `400` (validation error, the parent doesn't exist, or the move would put the
+folder inside itself or one of its sub-folders) · `404`
+
+### `DELETE /api/folders/{id}`
+Deletes the folder. In the same transaction, its sub-folders and documents **move up to the
+deleted folder's parent**, so no writing is ever deleted.
 → `204` · `404`
 
 ---

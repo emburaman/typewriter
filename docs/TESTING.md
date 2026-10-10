@@ -5,8 +5,8 @@
 | Suite | Command | Covers |
 |---|---|---|
 | Types | `npm run typecheck` | Strict TS for UI and server |
-| Unit (Vitest) | `npm test` | Key → sound mapping, sound cookie parsing and serialization · Settings/document validation (5-color cap, hex colors, safe font names, UUID ids), AES-GCM token encryption (round trip, tamper, wrong key), API error → status mapping (no leaked internals), word count, UUID fallback for HTTP contexts |
-| E2E (Playwright) | `npm run test:e2e` (app running) | Typewriter sound plays on keystrokes, stays silent for shortcuts and navigation keys, toggle persists in the `ow_sound` cookie · Olive Writer branding · Ctrl+B/I/U · `1. ` / `- ` lists · Tab nests right after the marker, Shift+Tab un-nests · Tab elsewhere inserts `\t` · Ctrl+1…5 / Ctrl+0 colors with clean HTML · 5 s browser autosave and restore after reload · Ctrl+S saves (verified via API) · unload prompt when unsaved · theme toggle persists · settings palette cap and persistence |
+| Unit (Vitest) | `npm test` | Footnote sync in a real TipTap editor (jsdom) · embed safety (pasted iframes and `javascript:` dropped, iframe src always rebuilt) · YouTube/Vimeo URL parsing · link normalization · media type detection · Drive export of embeds · file-tree helpers (sorting, descendants, drop rules, cycle-safe ancestors) · Key → sound mapping, sound cookie parsing and serialization · Settings/document validation (5-color cap, hex colors, safe font names, UUID ids), AES-GCM token encryption (round trip, tamper, wrong key), API error → status mapping (no leaked internals), word count, UUID fallback for HTTP contexts |
+| E2E (Playwright) | `npm run test:e2e` (app running) | Markdown shortcuts (headings, quote, rule, code, code block, `[text](url)`) · heading picker and Ctrl+Alt+n · link dialog (Ctrl+K, unsafe URLs rejected) · footnotes (numbering, two-way links, renumbering, removal) · media dialog (YouTube, image with alt text, audio with a manual type) · Files panel (create and rename folders, new document saved into a folder, drag and drop of documents and folders, refused cyclic drop, Move to…, deleting a folder moves its contents up) · Typewriter sound plays on keystrokes, stays silent for shortcuts and navigation keys, toggle persists in the `ow_sound` cookie · Olive Writer branding · Ctrl+B/I/U · `1. ` / `- ` lists · Tab nests right after the marker, Shift+Tab un-nests · Tab elsewhere inserts `\t` · Ctrl+1…5 / Ctrl+0 colors with clean HTML · 5 s browser autosave and restore after reload · Ctrl+S saves (verified via API) · unload prompt when unsaved · theme toggle persists · settings palette cap and persistence |
 
 ## Manual checklist
 
@@ -29,6 +29,28 @@
 - [ ] Typing letters makes typewriter strikes; Space, Backspace and Enter each sound different
 - [ ] Ctrl+B, arrow keys and Esc make no sound
 - [ ] The speaker icon turns sound off; after a reload it's still off; the Settings checkbox matches
+
+**Markdown formatting**
+- [ ] `# ` … `###### ` give H1–H6. The Text style picker and Ctrl+Alt+1…6 change the current block
+- [ ] `> ` quotes, and Enter on an empty quote line exits the quote
+- [ ] `---` gives a horizontal line. It can be selected (click it) and deleted
+- [ ] `` `code` `` and Ctrl+E give inline code; ```` ``` ```` + space gives a code block where Tab inserts a tab
+- [ ] Ctrl+K on selected text links it; on a link it offers Update / Remove; `javascript:` is refused
+- [ ] Typing `[site](https://example.com)` creates a link; Ctrl+click opens it in a new tab
+- [ ] Ctrl+Alt+F inserts footnote 1 and moves the cursor into its note; a second footnote earlier in the text becomes 1 and the first becomes 2
+- [ ] Clicking a footnote number jumps to its note; ↩ jumps back; deleting the number removes the note
+- [ ] Insert media: a YouTube link with `t=1m30s` starts at 1:30; Vimeo links play; an image URL shows the image with alt text; .mp3 / .mp4 show players
+- [ ] Pasting HTML that contains an `<iframe>` from another site doesn't add it
+- [ ] With Drive enabled, the Drive copy shows "▶ Video: link" in place of each player
+
+**Files and folders**
+- [ ] New folder → rename inline (Enter saves, Esc cancels)
+- [ ] ⋯ → New document here → write → Ctrl+S → the document appears inside that folder
+- [ ] Drag a document onto a folder, and onto the empty area (top level)
+- [ ] Drag a folder into another folder; dropping a folder into its own sub-folder isn't highlighted and does nothing
+- [ ] ⋯ → Move to… lists every folder except the item itself and its sub-folders
+- [ ] Delete a folder that has contents → they appear in the parent folder
+- [ ] Reopen the panel → expanded folders are remembered, and the open document's folder is expanded
 
 **Saving**
 - [ ] The status bar changes to "Unsaved · browser draft hh:mm" within 5 s of typing

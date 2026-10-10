@@ -4,6 +4,7 @@ import { google, type Auth, type drive_v3 } from "googleapis";
 import { config } from "../config.js";
 import { HttpError } from "../errors.js";
 import { decrypt, encrypt } from "./crypto.js";
+import { escapeHtml, replaceEmbedsWithLinks } from "./driveHtml.js";
 import * as googleRepo from "../repositories/googleRepository.js";
 import type { DocumentRecord, GoogleStatus } from "../../lib/shared/schemas.js";
 
@@ -153,9 +154,9 @@ function isNotFound(err: unknown): boolean {
 }
 
 function toHtmlFile(doc: Pick<DocumentRecord, "title" | "contentHtml">, fontFamily: string): string {
-  const title = doc.title.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c] ?? c);
+  const title = escapeHtml(doc.title);
   return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
-    `<body style="font-family: '${fontFamily}', monospace;">${doc.contentHtml}</body></html>`;
+    `<body style="font-family: '${fontFamily}', monospace;">${replaceEmbedsWithLinks(doc.contentHtml)}</body></html>`;
 }
 
 /**

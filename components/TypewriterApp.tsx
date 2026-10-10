@@ -15,7 +15,8 @@ import { countWords, createExtensions, toEditorContent } from "@/lib/editor/exte
 import { AUTOSAVE_INTERVAL_MS, type DocumentRecord, type EditorJson } from "@/lib/shared/schemas";
 import { soundForKey } from "@/lib/sound/keySounds";
 import { newUuid } from "@/lib/uuid";
-import { DocumentsDrawer } from "./DocumentsDrawer";
+import { LinkDialog, MediaDialog } from "./EditorDialogs";
+import { FilesPanel } from "./FilesPanel";
 import { Icon } from "./Icon";
 import { Logo } from "./Logo";
 import { useSettings } from "./SettingsProvider";
@@ -36,7 +37,16 @@ export function TypewriterApp() {
   // Palette is read lazily by the Ctrl+1…5 shortcuts so settings changes apply instantly.
   const colorsRef = useRef(settings.toolbarColors);
   colorsRef.current = settings.toolbarColors;
-  const extensions = useMemo(() => createExtensions(() => colorsRef.current), []);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [mediaOpen, setMediaOpen] = useState(false);
+  const extensions = useMemo(
+    () =>
+      createExtensions(
+        () => colorsRef.current,
+        () => setLinkOpen(true),
+      ),
+    [],
+  );
 
   const [docId, setDocId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -57,6 +67,8 @@ export function TypewriterApp() {
   const serverRevision = useRef(0);
   const localRevision = useRef(0);
   const docIdRef = useRef<string | null>(null);
+  /** Folder a brand-new document belongs to; sent on save, but only applied by the server on create. */
+  const folderIdRef = useRef<string | null>(null);
   const titleRef = useRef("");
   const savingRef = useRef(false);
   const wordTimer = useRef<number | undefined>(undefined);
@@ -100,6 +112,7 @@ export function TypewriterApp() {
       contentJson: editor.getJSON() as EditorJson,
       savedAt: now,
       unsynced: isServerDirty(),
+      folderId: folderIdRef.current,
     });
     if (ok) {
       localRevision.current = revision.current;
@@ -120,6 +133,7 @@ export function TypewriterApp() {
     try {
       const result = await saveDocument(id, {
         title: titleRef.current.trim() || "Untitled",
+        folderId: folderIdRef.current,
         contentJson: editor.getJSON() as EditorJson,
         contentHtml: editor.getHTML(),
         wordCount: countWords(editor.getText()),
@@ -155,7 +169,7 @@ export function TypewriterApp() {
 
   /** Loads a document: the server copy, or a newer unsynced browser draft if one exists. */
   const loadDocument = useCallback(
-    async (id: string, isNew: boolean) => {
+    async (id: string, isNew: boolean, newFolderId: string | null = null) => {
       if (!editor) return;
       setLoading(true);
       editor.setEditable(false);
@@ -193,6 +207,7 @@ export function TypewriterApp() {
 
       editor.commands.setContent(toEditorContent(content), { emitUpdate: false });
       docIdRef.current = id;
+      folderIdRef.current = server?.folderId ?? draft?.folderId ?? newFolderId;
       titleRef.current = docTitle;
       revision.current = 0;
       localRevision.current = 0;
@@ -274,7 +289,7 @@ export function TypewriterApp() {
   }, [typing]);
 
   const switchTo = useCallback(
-    async (id: string | null) => {
+    async (id: string | null, newFolderId: string | null = null) => {
       setDrawerOpen(false);
       if (id !== null && id === docIdRef.current) return;
       if (isServerDirty()) {
@@ -284,7 +299,7 @@ export function TypewriterApp() {
         if (wantsSave && !(await save())) return;
       }
       flushLocal();
-      await loadDocument(id ?? newUuid(), id === null);
+      await loadDocument(id ?? newUuid(), id === null, newFolderId);
     },
     [flushLocal, loadDocument, save],
   );
@@ -309,7 +324,7 @@ export function TypewriterApp() {
           <Logo height={20} />
         </Link>
         <nav className="topbar-actions" aria-label="Document actions">
-          <button type="button" className="icon-btn" title="Documents" aria-label="Documents" onClick={() => setDrawerOpen(true)}>
+          <button type="button" className="icon-btn" title="Files" aria-label="Files" onClick={() => setDrawerOpen(true)}>
             <Icon name="files" />
           </button>
           <button type="button" className="icon-btn" title="New document" aria-label="New document" onClick={() => void switchTo(null)}>
@@ -335,7 +350,12 @@ export function TypewriterApp() {
 
       {editor && (
         <div className="chrome toolbar-wrap">
-          <Toolbar editor={editor} colors={settings.toolbarColors} />
+          <Toolbar
+            editor={editor}
+            colors={settings.toolbarColors}
+            onLink={() => setLinkOpen(true)}
+            onMedia={() => setMediaOpen(true)}
+          />
         </div>
       )}
 
@@ -378,13 +398,19 @@ export function TypewriterApp() {
       </footer>
 
       {docId && (
-        <DocumentsDrawer
+        <FilesPanel
           open={drawerOpen}
           currentId={docId}
           onClose={() => setDrawerOpen(false)}
           onOpenDocument={(id) => void switchTo(id)}
-          onNewDocument={() => void switchTo(null)}
+          onNewDocument={(folderId) => void switchTo(null, folderId)}
         />
+      )}
+      {editor && (
+        <>
+          <LinkDialog editor={editor} open={linkOpen} onClose={() => setLinkOpen(false)} />
+          <MediaDialog editor={editor} open={mediaOpen} onClose={() => setMediaOpen(false)} />
+        </>
       )}
     </div>
   );

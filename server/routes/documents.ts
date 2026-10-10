@@ -2,12 +2,14 @@ import { Router, type Request } from "express";
 import { randomUUID } from "node:crypto";
 import {
   documentIdSchema,
+  documentMoveSchema,
   documentWriteSchema,
   type DocumentRecord,
   type DocumentSaveResult,
 } from "../../lib/shared/schemas.js";
-import { notFound } from "../errors.js";
+import { badRequest, notFound } from "../errors.js";
 import * as documentsRepo from "../repositories/documentsRepository.js";
+import * as foldersRepo from "../repositories/foldersRepository.js";
 import * as settingsRepo from "../repositories/settingsRepository.js";
 import * as drive from "../services/googleDrive.js";
 
@@ -19,6 +21,10 @@ async function requireDocument(id: string): Promise<DocumentRecord> {
   const doc = await documentsRepo.findDocument(id);
   if (!doc) throw notFound(`Document ${id} not found`);
   return doc;
+}
+
+async function requireFolder(folderId: string | null | undefined): Promise<void> {
+  if (folderId && !(await foldersRepo.findFolder(folderId))) throw badRequest(`Folder ${folderId} does not exist`);
 }
 
 /** Uploads to Drive when the storage provider says so. Drive failures never lose the server save. */
@@ -49,6 +55,7 @@ documentsRouter.get("/", async (_req, res) => {
 /** POST /api/documents — create with a server-generated id. */
 documentsRouter.post("/", async (req, res) => {
   const body = documentWriteSchema.parse(req.body ?? {});
+  await requireFolder(body.folderId);
   const id = randomUUID();
   await documentsRepo.upsertDocument(id, body);
   const result = await syncToDriveIfEnabled(await requireDocument(id));
@@ -63,13 +70,24 @@ documentsRouter.get("/:id", async (req, res) => {
 /**
  * PUT /api/documents/:id — create-or-replace (201 when created, 200 when updated).
  * Ids are client-generated so a browser-only draft keeps its identity once saved.
+ * `folderId` is only applied when the document is created; use PATCH to move it later.
  */
 documentsRouter.put("/:id", async (req, res) => {
   const id = parseId(req);
   const body = documentWriteSchema.parse(req.body);
+  await requireFolder(body.folderId);
   const { created } = await documentsRepo.upsertDocument(id, body);
   const result = await syncToDriveIfEnabled(await requireDocument(id));
   res.status(created ? 201 : 200).json(result);
+});
+
+/** PATCH /api/documents/:id — move to another folder (`folderId: null` = top level). */
+documentsRouter.patch("/:id", async (req, res) => {
+  const id = parseId(req);
+  const { folderId } = documentMoveSchema.parse(req.body);
+  await requireFolder(folderId);
+  if (!(await documentsRepo.moveDocument(id, folderId))) throw notFound(`Document ${id} not found`);
+  res.status(200).json(await requireDocument(id));
 });
 
 /** POST /api/documents/:id/drive-sync — upload to Drive now, regardless of storage provider. */

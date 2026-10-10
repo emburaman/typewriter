@@ -408,6 +408,15 @@ function StorageSection({ settings, save }: { settings: Settings; save: SaveFn }
 
 const SHORTCUTS: [string, string][] = [
   ["Ctrl+B / Ctrl+I / Ctrl+U", "Bold / italic / underline"],
+  ["Ctrl+E or `code`", "Inline code"],
+  ["Ctrl+K", "Insert or edit a link (or type [text](https://…))"],
+  ["# … ###### then space", "Heading 1–6 (also Ctrl+Alt+1…6; Ctrl+Alt+0 for paragraph)"],
+  ["> then space", "Quote (also Ctrl+Shift+B)"],
+  ["--- ", "Horizontal line"],
+  ["``` then space (or ```js then space)", "Code block (also Ctrl+Alt+C)"],
+  ["Ctrl+Alt+F", "Insert a footnote and jump to its note"],
+  ["![alt](https://…)", "Insert an image from a URL"],
+  ["Ctrl+click a link", "Open it in a new tab"],
   ["Ctrl+1 … Ctrl+5", "Apply toolbar color 1–5 (press again to remove). Alt+1…5 also works."],
   ["Ctrl+0", "Default text color"],
   ["1. then space", "Start a numbered list (any number sets the start)"],

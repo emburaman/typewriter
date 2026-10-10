@@ -5,6 +5,7 @@ import type { DocumentRecord, DocumentSummary, EditorJson } from "../../lib/shar
 interface DocumentRow extends RowDataPacket {
   id: string;
   title: string;
+  folder_id: string | null;
   content_json: unknown;
   content_html: string;
   word_count: number;
@@ -20,6 +21,7 @@ function rowToSummary(row: DocumentRow): DocumentSummary {
   return {
     id: row.id,
     title: row.title,
+    folderId: row.folder_id,
     wordCount: row.word_count,
     updatedAt: row.updated_at.toISOString(),
     driveFileId: row.drive_file_id,
@@ -38,8 +40,8 @@ function rowToRecord(row: DocumentRow): DocumentRecord {
 
 export async function listDocuments(): Promise<DocumentSummary[]> {
   const [rows] = await getPool().execute<DocumentRow[]>(
-    `SELECT id, title, word_count, drive_file_id, drive_synced_at, updated_at
-       FROM documents ORDER BY updated_at DESC`,
+    `SELECT id, title, folder_id, word_count, drive_file_id, drive_synced_at, updated_at
+       FROM documents ORDER BY title, updated_at DESC`,
   );
   return rows.map(rowToSummary);
 }
@@ -52,6 +54,8 @@ export async function findDocument(id: string): Promise<DocumentRecord | null> {
 
 export interface DocumentFields {
   title: string;
+  /** Applied only when the row is inserted; moving is a separate operation. */
+  folderId?: string | null;
   contentJson: EditorJson;
   contentHtml: string;
   wordCount: number;
@@ -63,15 +67,15 @@ export interface DocumentFields {
  */
 export async function upsertDocument(id: string, fields: DocumentFields): Promise<{ created: boolean }> {
   const [result] = await getPool().execute<ResultSetHeader>(
-    `INSERT INTO documents (id, title, content_json, content_html, word_count)
-          VALUES (?, ?, ?, ?, ?) AS incoming
+    `INSERT INTO documents (id, title, folder_id, content_json, content_html, word_count)
+          VALUES (?, ?, ?, ?, ?, ?) AS incoming
      ON DUPLICATE KEY UPDATE
           title = incoming.title,
           content_json = incoming.content_json,
           content_html = incoming.content_html,
           word_count = incoming.word_count,
           updated_at = CURRENT_TIMESTAMP`,
-    [id, fields.title, JSON.stringify(fields.contentJson), fields.contentHtml, fields.wordCount],
+    [id, fields.title, fields.folderId ?? null, JSON.stringify(fields.contentJson), fields.contentHtml, fields.wordCount],
   );
   // MySQL reports 1 affected row for an insert, 2 for an update (0 if nothing changed).
   return { created: result.affectedRows === 1 };
@@ -82,6 +86,15 @@ export async function markDriveSynced(id: string, driveFileId: string): Promise<
     "UPDATE documents SET drive_file_id = ?, drive_synced_at = CURRENT_TIMESTAMP, updated_at = updated_at WHERE id = ?",
     [driveFileId, id],
   );
+}
+
+/** Moves a document to a folder (null = top level). Doesn't bump `updated_at`. */
+export async function moveDocument(id: string, folderId: string | null): Promise<boolean> {
+  const [result] = await getPool().execute<ResultSetHeader>(
+    "UPDATE documents SET folder_id = ?, updated_at = updated_at WHERE id = ?",
+    [folderId, id],
+  );
+  return result.affectedRows > 0;
 }
 
 export async function deleteDocument(id: string): Promise<boolean> {

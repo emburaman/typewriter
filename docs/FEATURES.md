@@ -70,15 +70,43 @@ See the README for the Google Cloud setup.
 | Nest list item | — | `Tab` right after the bullet or number (or with text selected in a list) |
 | Un-nest list item | — | `Shift+Tab` |
 | Leave a list | — | `Enter` on an empty item, or `Backspace` at the start of an item |
+| Heading 1–6 | "Text style" picker | type `# ` … `###### ` at the start of a line, or `Ctrl+Alt+1…6` (`Ctrl+Alt+0` = paragraph) |
+| Quote | ❝ | type `> `, or `Ctrl+Shift+B` |
+| Horizontal line | — | type `---` on an empty line |
+| Inline code | `</>` | wrap in backticks: `` `code` ``, or `Ctrl+E` |
+| Code block | ▣ | type ```` ``` ```` + space (```` ```js ```` + space sets a language label), or `Ctrl+Alt+C`. `Tab` inserts a tab inside it. |
+| Link | 🔗 | `Ctrl+K`, or type `[text](https://…)`. URLs you paste or type are linked automatically. |
+| Footnote | x¹ | `Ctrl+Alt+F` |
+| Image / audio / video / YouTube / Vimeo | 🖼 | Insert media dialog. You can also type `![alt](https://…image)`. |
 
 On macOS, use ⌘ in place of Ctrl.
 
 Other details:
 
+- **Links**: a normal click places the cursor, which is what you want while writing.
+  `Ctrl/⌘+click` opens the link in a new tab. Only `http(s)`, `mailto:` and in-document `#anchor`
+  links are accepted; `javascript:` and similar are refused.
+- **Footnotes** are the in-document links. `Ctrl+Alt+F` (or x¹) inserts a superscript number at
+  the cursor and moves you to a new note in the **Notes** section at the end of the document.
+  Clicking a number jumps to its note, and the ↩ in a note jumps back. Numbers always follow
+  reading order: if you add a footnote earlier in the text, or delete one, all the numbers update
+  and the notes reorder to match. Deleting a number deletes its note. The saved HTML uses standard
+  `#fn-…` / `#fnref-…` anchors, so the links also work in exported copies.
+- **Media from a URL**: the Insert media dialog takes a link and works out what it is:
+  - a **YouTube** link (`watch?v=`, `youtu.be`, Shorts, with `t=` start times) or a **Vimeo**
+    link (including unlisted links with a hash) becomes an embedded player;
+  - a link to an image, audio or video file becomes an image or a native player. If the address
+    has no file extension, choose the type yourself.
+  - Images take a description (alt text) for accessibility.
+- **Privacy and safety for embeds**: YouTube plays through `youtube-nocookie.com` and Vimeo with
+  Do-Not-Track. The document stores only the provider and video id, and the player address is
+  rebuilt from those every time, so pasted or edited HTML can never frame another site. The app's
+  Content-Security-Policy only allows those two players in frames.
+- **Google Drive copies**: Google Docs can't hold embedded players, so in the Drive copy each
+  video and audio player becomes a "▶ Video: <link>" line. Images, headings, quotes, code, links
+  and footnotes are converted normally.
 - **Tab** anywhere else inserts a real tab character, like a typewriter, and doesn't move focus.
   Press `Esc` to move keyboard focus out of the editor.
-- Headings, quotes, code blocks and links are switched off on purpose, so Markdown-like typing
-  (`# `, `> `) never reformats your text unexpectedly.
 - Nested numbered lists use 1 → a → i. Nested bulleted lists use • → ◦ → ▪.
 
 ### 3.1 Toolbar colors (Settings → Toolbar colors)
@@ -97,6 +125,33 @@ Other details:
 - The app requests regular, bold and italic faces. If a family has no bold or italic face, it
   falls back to the regular face and the browser imitates the missing styles.
 - Font size can be set from 12 to 32 px.
+
+## 3.3 Files and folders (the Files panel)
+
+Open it with the files icon in the header.
+
+- **Folders**: *New folder* at the top creates a top-level folder and opens it for renaming. Each
+  folder's **⋯** menu has *New document here*, *New folder inside*, *Rename*, *Move to…* and
+  *Delete folder*.
+- **Documents** are listed inside their folder (folders first, then documents, both A→Z with
+  natural number order, so "Chapter 2" comes before "Chapter 10"). Click one to open it. Its **⋯**
+  menu has *Open*, *Move to…* and *Delete*.
+- **Moving things**:
+  - **Drag and drop** a document or folder onto a folder to move it inside, or onto the empty
+    area of the panel to move it to the top level. The target is highlighted, and drops that
+    aren't allowed (a folder into itself or its own sub-folder) are refused.
+  - **Move to…** does the same with a list of destinations, so it also works with a keyboard and
+    on touch screens.
+- **New document in a folder**: the new document starts as a browser draft and is saved into
+  that folder on its first `Ctrl+S`.
+- **Deleting a folder** never deletes writing: its documents and sub-folders move up to the
+  folder's parent.
+- Folders you expand are remembered in this browser, and the folders above the open document
+  are expanded automatically.
+- Browser-only drafts (never saved to the server) are listed separately at the top. They can't
+  be moved until they are saved.
+- Google Drive copies stay in the single Drive folder from Settings. Folders are not mirrored to
+  Drive yet.
 
 ## 4. Auto-save and leave protection
 

@@ -46,9 +46,10 @@ app/                    Next.js App Router pages (/, /settings) + global CSS
 components/             React client components (editor, toolbar, settings, theme)
 lib/api/                Centralized typed API client — the ONLY place the UI calls fetch()
 lib/shared/             Types + zod schemas shared by UI and server
-lib/editor/             TipTap extensions (color shortcuts, list-aware Tab)
+lib/editor/             TipTap extensions (colors, Tab, footnotes, media/video embeds, links)
 lib/hooks/              Browser-side hooks (local autosave, unload guard, fonts, theme)
 lib/sound/              Typewriter sound engine (Web Audio), key mapping, cookie preference
+lib/files/              File-tree helpers for the Files panel (children, descendants, drop rules)
 server/                 Express app, routes, services, DB pool + migration runner
 db/migrations/          Ordered .sql migrations (applied automatically at boot)
 docs/                   Architecture, API reference, feature docs
@@ -62,6 +63,11 @@ docs/                   Architecture, API reference, feature docs
 | `settings`          | single row (`id = 1`): theme, font, size, palette, storage  |
 | `documents`         | id (UUID), title, content JSON + HTML, Drive file id, times |
 | `google_credentials`| single row: AES-256-GCM encrypted tokens, email, folder id  |
+| `folders`           | tree of folders (`parent_id` → `folders.id`, NULL = top level) |
+
+`documents.folder_id` → `folders.id` (NULL = top level). Both foreign keys are `RESTRICT`: deleting
+a folder moves its contents up a level in a transaction first, so nothing is ever cascaded away.
+Folder moves are checked for cycles with a recursive CTE (`WITH RECURSIVE ancestors …`).
 
 The app is **single-user / self-hosted** by design (one settings row, one Drive connection).
 Multi-user auth is a future feature; the schema keeps per-row ids so it can be added.
@@ -98,6 +104,12 @@ The chosen family is loaded with a `fonts.googleapis.com/css2` `<link>`.
   and dark themes; "default text color" is a separate action (`Ctrl+0`, eraser button).
 * **Revision counters** (not content diffing) track "unsaved locally" vs "unsaved on server", so
   autosave and the unload guard cost nothing per keystroke.
+* **Editor schema**: TipTap StarterKit (headings 1–6, quote, rule, code, code block, link) plus
+  our own nodes: `footnoteReference` / `footnotes` / `footnote` (a plugin keeps the numbering, note
+  order and anchors consistent after every change), `videoEmbed` (stores only provider + id, with
+  the iframe src rebuilt on render) and `mediaFile` (http(s) audio/video only).
+* **A document's folder is set on create only** (`PUT` with `folderId`); moves are a separate
+  `PATCH`. That way a save from an open editor can never undo a move made in the Files panel.
 * **Typewriter sound is synthesized, not sampled**: Web Audio noise bursts, oscillators and a bell
   give near-zero latency, natural per-key variation, no audio assets or licensing, and nothing to
   download. The on/off choice lives in a cookie because it's a per-browser preference (it doesn't

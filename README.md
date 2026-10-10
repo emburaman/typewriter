@@ -31,7 +31,8 @@ server (MySQL) and, if you want, to Google Drive.
 | **Fonts** | Any Google Fonts family, with a live preview. You get a curated list by default, or the full catalog if you set a Google Fonts API key. |
 | **Autosave** | Saves to browser storage every 5 s. If the browser has a newer unsaved draft than the server, it's restored on load. Closing the tab with changes not yet saved to the server triggers the browser's "Leave site?" prompt. |
 | **Storage** | MySQL on the server, plus optional **Google Drive** sync: each save also uploads the document to a Drive folder as a Google Doc. |
-| **Documents** | A side drawer lists saved documents and browser-only drafts. You can open, create and delete documents there. |
+| **Markdown formatting** | Headings H1–H6, quotes, horizontal lines, inline code and code blocks, external links, footnotes with two-way in-document links, images / audio / video from a URL, and embedded YouTube and Vimeo videos. Markdown typing shortcuts work (`# `, `> `, `---`, `` `code` ``, ```` ``` ````, `[text](url)`, `![alt](url)`). |
+| **Files and folders** | The Files panel shows saved documents in a tree of folders. Create, rename and delete folders, and move documents and folders by drag and drop or with "Move to…". Deleting a folder never deletes writing: its contents move up a level. |
 
 See **[docs/FEATURES.md](docs/FEATURES.md)** for details of each feature.
 
@@ -180,7 +181,8 @@ app/                 Next.js App Router: / (editor), /settings, global styles
 assets/brand/        Original "Olive" / "Writer" logo SVGs (rendered via components/Logo.tsx)
 components/          React client components (editor screen, toolbar, settings, drawer, providers)
 lib/api/             Centralized typed API client: the only code in the UI that calls fetch()
-lib/editor/          TipTap extensions (color shortcuts, Tab behavior) and browser draft storage
+lib/editor/          TipTap extensions (color shortcuts, Tab, footnotes, media/video embeds, links), URL validation, browser drafts
+lib/files/           File-tree helpers (children, descendants, drop rules)
 lib/hooks/           Google Fonts loader
 lib/sound/           Typewriter sound synthesis (Web Audio), key → sound mapping, cookie preference
 lib/shared/          Types + zod schemas shared by UI and server

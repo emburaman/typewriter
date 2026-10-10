@@ -87,19 +87,27 @@ export type EditorJson = z.infer<typeof editorJsonSchema>;
 /** ~4 MB of HTML is plenty for a single piece of writing and keeps MEDIUMTEXT safe. */
 const MAX_HTML_LENGTH = 4_000_000;
 
+export const documentIdSchema = z.uuid();
+const nullableId = z.uuid().nullable();
+
 export const documentWriteSchema = z.object({
   title: z.string().trim().max(255).default("Untitled"),
+  /** Only used when the document is created; existing documents move via PATCH. */
+  folderId: nullableId.optional(),
   contentJson: editorJsonSchema,
   contentHtml: z.string().max(MAX_HTML_LENGTH),
   wordCount: z.number().int().min(0).default(0),
 });
 export type DocumentWrite = z.input<typeof documentWriteSchema>;
 
-export const documentIdSchema = z.uuid();
+/** PATCH /api/documents/:id — currently only moving between folders. */
+export const documentMoveSchema = z.object({ folderId: nullableId }).strict();
+export type DocumentMove = z.infer<typeof documentMoveSchema>;
 
 export interface DocumentSummary {
   id: string;
   title: string;
+  folderId: string | null;
   wordCount: number;
   updatedAt: string;
   driveFileId: string | null;
@@ -116,6 +124,31 @@ export interface DocumentRecord extends DocumentSummary {
 export interface DocumentSaveResult {
   document: DocumentRecord;
   drive: { status: "skipped" | "synced" | "failed"; message?: string };
+}
+
+/* ------------------------------------------------------------------ */
+/* Folders                                                             */
+/* ------------------------------------------------------------------ */
+
+const folderName = z.string().trim().min(1, "Folder name is required").max(255);
+
+export const folderCreateSchema = z
+  .object({ name: folderName, parentId: nullableId.default(null) })
+  .strict();
+export type FolderCreate = z.input<typeof folderCreateSchema>;
+
+export const folderUpdateSchema = z
+  .object({ name: folderName.optional(), parentId: nullableId.optional() })
+  .strict()
+  .refine((v) => v.name !== undefined || v.parentId !== undefined, "Nothing to update");
+export type FolderUpdate = z.infer<typeof folderUpdateSchema>;
+
+export interface Folder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ------------------------------------------------------------------ */

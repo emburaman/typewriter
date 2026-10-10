@@ -1,9 +1,12 @@
 import { Extension, type Editor, type KeyboardShortcutCommand } from "@tiptap/react";
 import { MAX_TOOLBAR_COLORS } from "@/lib/shared/schemas";
+import { insertFootnote } from "./footnotes";
 
 export interface TypewriterKeymapOptions {
   /** Returns the current toolbar palette (read lazily so settings changes apply immediately). */
   getColors: () => string[];
+  /** Opens the link dialog (Ctrl/Cmd+K). */
+  onLinkShortcut: () => void;
 }
 
 /**
@@ -49,7 +52,7 @@ export const TypewriterKeymap = Extension.create<TypewriterKeymapOptions>({
   priority: 1000,
 
   addOptions() {
-    return { getColors: () => [] };
+    return { getColors: () => [], onLinkShortcut: () => undefined };
   },
 
   addKeyboardShortcuts() {
@@ -60,6 +63,11 @@ export const TypewriterKeymap = Extension.create<TypewriterKeymapOptions>({
         return true;
       },
       Escape: ({ editor }) => editor.commands.blur(),
+      "Mod-k": () => {
+        this.options.onLinkShortcut();
+        return true;
+      },
+      "Mod-Alt-f": ({ editor }) => insertFootnote(editor),
       "Mod-0": ({ editor }) => clearColor(editor),
       "Alt-0": ({ editor }) => clearColor(editor),
     };

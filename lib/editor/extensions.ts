@@ -3,32 +3,47 @@ import type { EditorJson } from "@/lib/shared/schemas";
 import StarterKit from "@tiptap/starter-kit";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
 import Placeholder from "@tiptap/extension-placeholder";
+import Image from "@tiptap/extension-image";
+import { Footnote, FootnoteReference, Footnotes } from "./footnotes";
+import { LinkExtras } from "./links";
+import { MediaFile, VideoEmbed } from "./mediaNodes";
 import { TypewriterKeymap } from "./typewriterKeymap";
 
 /**
- * The deliberately small formatting surface: bold, italic, underline, palette colors,
- * bulleted and numbered lists. Headings, code, quotes, links etc. are switched off so
- * Markdown-ish input rules ("# ", "> ", "```") never surprise a writer.
+ * Formatting surface: bold, italic, underline, inline code, palette colors, links,
+ * headings H1–H6, bulleted / numbered lists, blockquotes, code blocks, horizontal lines,
+ * footnotes, images, audio/video files and YouTube/Vimeo embeds.
  *
- * List input rules come from TipTap: "1. " starts a numbered list (any number sets the
- * start), "- " (also "* " / "+ ") starts a bulleted list.
+ * Markdown input rules (all from TipTap unless noted):
+ *   "# " … "###### " headings · "> " quote · "- " / "1. " lists · "```" code block ·
+ *   `code` inline code · "---" horizontal line · **bold** · *italic* ·
+ *   ![alt](url) image · [text](url) link (ours, see links.ts)
  */
-export function createExtensions(getColors: () => string[]) {
+export function createExtensions(getColors: () => string[], onLinkShortcut: () => void = () => undefined) {
   return [
     StarterKit.configure({
-      heading: false,
-      blockquote: false,
-      code: false,
-      codeBlock: false,
-      horizontalRule: false,
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
       strike: false,
-      link: false,
       trailingNode: false,
+      link: {
+        openOnClick: false, // writing app: a click places the cursor; Ctrl/Cmd+click opens
+        autolink: true,
+        linkOnPaste: true,
+        defaultProtocol: "https",
+        HTMLAttributes: { rel: "noopener noreferrer nofollow", target: "_blank" },
+      },
     }),
     TextStyle,
     Color,
+    Image.configure({ allowBase64: false, HTMLAttributes: { loading: "lazy", referrerpolicy: "no-referrer" } }),
+    VideoEmbed,
+    MediaFile,
+    FootnoteReference,
+    Footnotes,
+    Footnote,
+    LinkExtras,
     Placeholder.configure({ placeholder: "Start typing…" }),
-    TypewriterKeymap.configure({ getColors }),
+    TypewriterKeymap.configure({ getColors, onLinkShortcut }),
   ];
 }
 

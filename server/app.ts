@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import helmet from "helmet";
 import { apiErrorHandler, apiNotFoundHandler } from "./errors.js";
 import { documentsRouter } from "./routes/documents.js";
+import { foldersRouter } from "./routes/folders.js";
 import { fontsRouter } from "./routes/fonts.js";
 import { googleRouter } from "./routes/google.js";
 import { healthRouter } from "./routes/health.js";
@@ -19,6 +20,7 @@ export function createApiRouter(): express.Router {
   api.use("/health", healthRouter);
   api.use("/settings", settingsRouter);
   api.use("/documents", documentsRouter);
+  api.use("/folders", foldersRouter);
   api.use("/google", googleRouter);
   api.use("/fonts", fontsRouter);
 
@@ -45,7 +47,11 @@ export function createApp({ dev }: { dev: boolean }): Express {
           "script-src": ["'self'", "'unsafe-inline'", ...(dev ? ["'unsafe-eval'"] : [])],
           "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           "font-src": ["'self'", "data:", "https://fonts.gstatic.com"],
-          "img-src": ["'self'", "data:", "blob:"],
+          // Images / audio / video are inserted by URL from anywhere on the web.
+          "img-src": ["'self'", "data:", "blob:", "https:", "http:"],
+          "media-src": ["'self'", "blob:", "https:", "http:"],
+          // Only the privacy-friendly YouTube and Vimeo players may be framed.
+          "frame-src": ["https://www.youtube-nocookie.com", "https://player.vimeo.com"],
           "connect-src": ["'self'", ...(dev ? ["ws:", "wss:"] : [])],
           "form-action": ["'self'", "https://accounts.google.com"],
           "upgrade-insecure-requests": null,
