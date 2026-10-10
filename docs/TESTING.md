@@ -5,8 +5,8 @@
 | Suite | Command | Covers |
 |---|---|---|
 | Types | `npm run typecheck` | Strict TS for UI and server |
-| Unit (Vitest) | `npm test` | Settings/document validation (5-color cap, hex colors, safe font names, UUID ids), AES-GCM token encryption (round trip, tamper, wrong key), API error → status mapping (no leaked internals), word count, UUID fallback for HTTP contexts |
-| E2E (Playwright) | `npm run test:e2e` (app running) | Ctrl+B/I/U · `1. ` / `- ` lists · Tab nests right after the marker, Shift+Tab un-nests · Tab elsewhere inserts `\t` · Ctrl+1…5 / Ctrl+0 colors with clean HTML · 5 s browser autosave and restore after reload · Ctrl+S saves (verified via API) · unload prompt when unsaved · theme toggle persists · settings palette cap and persistence |
+| Unit (Vitest) | `npm test` | Key → sound mapping, sound cookie parsing and serialization · Settings/document validation (5-color cap, hex colors, safe font names, UUID ids), AES-GCM token encryption (round trip, tamper, wrong key), API error → status mapping (no leaked internals), word count, UUID fallback for HTTP contexts |
+| E2E (Playwright) | `npm run test:e2e` (app running) | Typewriter sound plays on keystrokes, stays silent for shortcuts and navigation keys, toggle persists in the `ow_sound` cookie · Olive Writer branding · Ctrl+B/I/U · `1. ` / `- ` lists · Tab nests right after the marker, Shift+Tab un-nests · Tab elsewhere inserts `\t` · Ctrl+1…5 / Ctrl+0 colors with clean HTML · 5 s browser autosave and restore after reload · Ctrl+S saves (verified via API) · unload prompt when unsaved · theme toggle persists · settings palette cap and persistence |
 
 ## Manual checklist
 
@@ -21,6 +21,14 @@
 - [ ] `Enter` on an empty list item leaves the list
 - [ ] Toolbar buttons show their active state and keep the text selection
 - [ ] Toolbar and header fade while typing and return when the mouse moves
+
+**Branding and sound**
+- [ ] Light theme: background `#FFFBDB`, logo "Olive" `#625834` and "Writer" `#A59132`
+- [ ] Dark theme: background `#30362F`, logo "Olive" `#FFFBDB` and "Writer" `#625834`
+- [ ] The browser tab shows "Olive Writer" and the olive "O" favicon
+- [ ] Typing letters makes typewriter strikes; Space, Backspace and Enter each sound different
+- [ ] Ctrl+B, arrow keys and Esc make no sound
+- [ ] The speaker icon turns sound off; after a reload it's still off; the Settings checkbox matches
 
 **Saving**
 - [ ] The status bar changes to "Unsaved · browser draft hh:mm" within 5 s of typing
@@ -42,7 +50,7 @@
 
 **Google Drive** (needs real OAuth credentials)
 - [ ] Connect → Google consent → back on Settings with "Google Drive connected" and the account email
-- [ ] Choose "Server + Google Drive" → `Ctrl+S` → a Google Doc appears in the `Typewriter` folder
+- [ ] Choose "Server + Google Drive" → `Ctrl+S` → a Google Doc appears in the `Olive Writer` folder
 - [ ] Saving again updates the same Drive file
 - [ ] Delete the file in Drive, then save → it's created again
 - [ ] Rename the folder in Settings, then save → the new folder is used

@@ -16,7 +16,9 @@ import {
   type SettingsUpdate,
 } from "@/lib/shared/schemas";
 import { Icon } from "./Icon";
+import { Logo } from "./Logo";
 import { useSettings } from "./SettingsProvider";
+import { useSound } from "./SoundProvider";
 import { useToast } from "./ToastProvider";
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -42,6 +44,7 @@ export function SettingsView() {
         <Link href="/" className="btn btn-ghost">
           <Icon name="arrowLeft" size={16} /> Back to writing
         </Link>
+        <Logo height={18} />
         <h1>Settings</h1>
       </header>
       {!loaded && <p className="muted">Loading settings…</p>}
@@ -59,6 +62,7 @@ type SaveFn = (change: SettingsUpdate, okMessage?: string) => Promise<boolean>;
 
 function AppearanceSection({ settings, save }: { settings: Settings; save: SaveFn }) {
   const fontListId = useId();
+  const sound = useSound();
   const [catalog, setCatalog] = useState<FontCatalog>({ source: "curated", families: [...CURATED_FONTS] });
   const [fontDraft, setFontDraft] = useState(settings.fontFamily);
   const [size, setSize] = useState(settings.fontSize);
@@ -104,6 +108,14 @@ function AppearanceSection({ settings, save }: { settings: Settings; save: SaveF
           ))}
         </div>
       </fieldset>
+
+      <div className="field">
+        <label className="radio">
+          <input type="checkbox" checked={sound.enabled} onChange={(e) => sound.setEnabled(e.target.checked)} />
+          Typewriter sound on every keystroke
+        </label>
+        <p className="hint">Remembered in this browser (cookie). Also toggled with the speaker icon in the editor's header.</p>
+      </div>
 
       <div className="field">
         <label htmlFor="font-family">Font face (Google Fonts)</label>

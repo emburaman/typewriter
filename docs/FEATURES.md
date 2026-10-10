@@ -2,6 +2,17 @@
 
 ## 1. Clean, distraction-free UI
 
+- **Branding**: the *Olive Writer* wordmark (from `assets/brand/`) sits in the top-left corner. Its
+  colors follow the theme:
+
+  | Theme | Background | "Olive" | "Writer" |
+  |---|---|---|---|
+  | Light | `#FFFBDB` | `#625834` | `#A59132` |
+  | Dark | `#30362F` | `#FFFBDB` | `#625834` |
+
+  The other UI colors (cards, borders, text, accent) are derived from these olive tones. All of them
+  are CSS variables at the top of `app/globals.css`.
+
 - One centered writing column (about 72 characters wide) in a typewriter font. The page leaves
   space below the text so the line you're typing doesn't sit at the bottom edge of the screen.
 - **Focus mode**: as soon as you type, the header and toolbar fade out and the status bar dims.
@@ -13,11 +24,28 @@
 - The status bar shows whether the document is saved, the time of the last browser draft or server
   save, and the word count. An amber dot means the server copy is behind.
 
+## 1.1 Typewriter sound
+
+- Every keystroke in the title or the page plays a typewriter sound, synthesized live with the Web
+  Audio API (there are no audio files):
+  - **letters, digits, punctuation, Tab**: a sharp type-bar strike with a low body thud,
+    slightly varied each time so fast typing sounds natural;
+  - **Space**: a softer, deeper thump;
+  - **Backspace / Delete**: a light click;
+  - **Enter**: a ratcheting carriage return, a clunk, then the margin bell.
+- Shortcuts (`Ctrl/⌘/Alt` combinations), modifier keys and navigation keys (arrows, Home, End, Esc)
+  make no sound. A real typewriter doesn't have those keys.
+- **On/off**: the speaker icon in the header, or *Settings → Appearance → Typewriter sound*. The
+  choice is stored in the `ow_sound` cookie (`on`/`off`, one year, `SameSite=Lax`) and applies to
+  this browser only. The default is on.
+- Browsers only allow audio after the first user interaction, so the sound engine starts on your
+  first keystroke.
+
 ## 2. Settings → Storage (Google Drive)
 
 - **Server only** (default): `Ctrl+S` saves to MySQL.
 - **Server + Google Drive**: each save also uploads the document to Google Drive as a
-  **Google Doc**, converted from the editor's HTML. Later saves update the same Drive file. If you
+  **Google Doc**, converted from the editor's HTML, in the `Olive Writer` folder by default. Later saves update the same Drive file. If you
   delete it in Drive, the next save creates a new one.
 - Connect and disconnect from Settings. You can rename the Drive folder there too; it's created
   on the next save if it doesn't exist.

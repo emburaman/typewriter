@@ -138,3 +138,54 @@ test("settings: palette is capped at 5 colors and changes persist", async ({ pag
   await expect(page.getByRole("button", { name: "Add color" })).toBeEnabled();
   await expect.poll(async () => (await (await request.get("/api/settings")).json()).toolbarColors.length).toBe(4);
 });
+
+/** Counts Web Audio sources started, so tests can tell whether a keystroke made a sound. */
+async function instrumentAudio(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __soundStarts: number };
+    w.__soundStarts = 0;
+    const original = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...args: Parameters<typeof original>) {
+      w.__soundStarts += 1;
+      return original.apply(this, args);
+    };
+  });
+}
+const soundStarts = (page: Page) => page.evaluate(() => (window as unknown as { __soundStarts: number }).__soundStarts);
+
+test("typewriter sound plays on keystrokes and the toggle persists in a cookie", async ({ page, context }) => {
+  await instrumentAudio(page);
+  await openEditor(page);
+  const toggle = page.getByRole("button", { name: "Typewriter sound" });
+  await expect(toggle).toHaveAttribute("aria-pressed", "true"); // on by default
+
+  await page.keyboard.type("abc");
+  await expect.poll(() => soundStarts(page)).toBeGreaterThan(0);
+
+  // Shortcuts and navigation keys are silent.
+  const beforeShortcuts = await soundStarts(page);
+  await page.keyboard.press("ControlOrMeta+b");
+  await page.keyboard.press("ArrowLeft");
+  expect(await soundStarts(page)).toBe(beforeShortcuts);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  const cookies = await context.cookies();
+  expect(cookies.find((c) => c.name === "ow_sound")?.value).toBe("off");
+
+  await page.locator(".editor-content").click();
+  const beforeMuted = await soundStarts(page);
+  await page.keyboard.type("silent");
+  expect(await soundStarts(page)).toBe(beforeMuted);
+
+  page.on("dialog", (d) => void d.accept());
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Typewriter sound" })).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("button", { name: "Typewriter sound" }).click(); // restore default for other tests
+});
+
+test("Olive Writer branding is shown", async ({ page }) => {
+  await openEditor(page);
+  await expect(page).toHaveTitle("Olive Writer");
+  await expect(page.getByRole("img", { name: "Olive Writer" })).toBeVisible();
+});

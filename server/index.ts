@@ -25,7 +25,7 @@ async function main() {
 
   const server = createServer(app);
   server.listen(config.port, () => {
-    console.log(`[server] Typewriter ready on ${config.appUrl} (port ${config.port}, ${dev ? "dev" : "production"})`);
+    console.log(`[server] Olive Writer ready on ${config.appUrl} (port ${config.port}, ${dev ? "dev" : "production"})`);
     if (!config.google.configured) {
       console.log("[server] Google Drive disabled — set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and TOKEN_ENCRYPTION_KEY to enable it.");
     }

@@ -13,10 +13,14 @@ import {
 } from "@/lib/editor/drafts";
 import { countWords, createExtensions, toEditorContent } from "@/lib/editor/extensions";
 import { AUTOSAVE_INTERVAL_MS, type DocumentRecord, type EditorJson } from "@/lib/shared/schemas";
+import { soundForKey } from "@/lib/sound/keySounds";
 import { newUuid } from "@/lib/uuid";
 import { DocumentsDrawer } from "./DocumentsDrawer";
 import { Icon } from "./Icon";
+import { Logo } from "./Logo";
 import { useSettings } from "./SettingsProvider";
+import { useSound } from "./SoundProvider";
+import { SoundToggle } from "./SoundToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { Toolbar } from "./Toolbar";
 import { useToast } from "./ToastProvider";
@@ -26,6 +30,7 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 export function TypewriterApp() {
   const { settings } = useSettings();
+  const { play } = useSound();
   const toast = useToast();
 
   // Palette is read lazily by the Ctrl+1…5 shortcuts so settings changes apply instantly.
@@ -300,9 +305,9 @@ export function TypewriterApp() {
   return (
     <div className={`app${typing ? " is-typing" : ""}`}>
       <header className="chrome topbar">
-        <div className="brand" aria-hidden="true">
-          typewriter
-        </div>
+        <Link href="/" className="brand" aria-label="Olive Writer">
+          <Logo height={20} />
+        </Link>
         <nav className="topbar-actions" aria-label="Document actions">
           <button type="button" className="icon-btn" title="Documents" aria-label="Documents" onClick={() => setDrawerOpen(true)}>
             <Icon name="files" />
@@ -320,6 +325,7 @@ export function TypewriterApp() {
           >
             <Icon name="save" />
           </button>
+          <SoundToggle />
           <ThemeToggle />
           <Link href="/settings" className="icon-btn" title="Settings" aria-label="Settings">
             <Icon name="settings" />
@@ -333,7 +339,15 @@ export function TypewriterApp() {
         </div>
       )}
 
-      <main className="page" aria-busy={loading}>
+      <main
+        className="page"
+        aria-busy={loading}
+        // Capture phase so the editor's own key handling can't swallow the event first.
+        onKeyDownCapture={(e) => {
+          const kind = soundForKey(e.nativeEvent);
+          if (kind) play(kind);
+        }}
+      >
         <input
           className="doc-title-input"
           value={title}

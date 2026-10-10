@@ -1,4 +1,4 @@
-# Architecture & Plan
+# Architecture & Plan — Olive Writer
 
 > Written before implementation, per the project's "plan first" rule. Kept up to date as the
 > source of truth for how the pieces fit together.
@@ -48,6 +48,7 @@ lib/api/                Centralized typed API client — the ONLY place the UI c
 lib/shared/             Types + zod schemas shared by UI and server
 lib/editor/             TipTap extensions (color shortcuts, list-aware Tab)
 lib/hooks/              Browser-side hooks (local autosave, unload guard, fonts, theme)
+lib/sound/              Typewriter sound engine (Web Audio), key mapping, cookie preference
 server/                 Express app, routes, services, DB pool + migration runner
 db/migrations/          Ordered .sql migrations (applied automatically at boot)
 docs/                   Architecture, API reference, feature docs
@@ -97,6 +98,10 @@ The chosen family is loaded with a `fonts.googleapis.com/css2` `<link>`.
   and dark themes; "default text color" is a separate action (`Ctrl+0`, eraser button).
 * **Revision counters** (not content diffing) track "unsaved locally" vs "unsaved on server", so
   autosave and the unload guard cost nothing per keystroke.
+* **Typewriter sound is synthesized, not sampled**: Web Audio noise bursts, oscillators and a bell
+  give near-zero latency, natural per-key variation, no audio assets or licensing, and nothing to
+  download. The on/off choice lives in a cookie because it's a per-browser preference (it doesn't
+  sync across browsers through the server settings).
 * **Drive failures never lose a save**: the MySQL write happens first and the response reports the
   Drive outcome separately (`drive.status`).
 * **Settings live on the server** (so they follow the app across browsers) and are mirrored to

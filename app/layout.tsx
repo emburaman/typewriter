@@ -4,7 +4,7 @@ import { Providers } from "@/components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Typewriter",
+  title: "Olive Writer",
   description: "A distraction-free place to write.",
 };
 
@@ -12,8 +12,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f5f0" },
-    { media: "(prefers-color-scheme: dark)", color: "#16171a" },
+    { media: "(prefers-color-scheme: light)", color: "#fffbdb" },
+    { media: "(prefers-color-scheme: dark)", color: "#30362f" },
   ],
 };
 

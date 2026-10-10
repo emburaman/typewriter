@@ -17,6 +17,8 @@ const PATHS = {
   eraser: "m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 19M22 21H7M5 11l9 9",
   chevronUp: "m18 15-6-6-6 6",
   chevronDown: "m6 9 6 6 6-6",
+  volume: "M11 5 6 9H2v6h4l5 4V5ZM15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14",
+  volumeOff: "M11 5 6 9H2v6h4l5 4V5ZM22 9l-6 6M16 9l6 6",
 } as const;
 
 export type IconName = keyof typeof PATHS;

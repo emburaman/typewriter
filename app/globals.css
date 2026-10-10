@@ -5,36 +5,42 @@
   --editor-font: "Courier Prime";
   --editor-size: 18px;
 
-  --bg: #f7f5f0;
-  --surface: #ffffff;
-  --surface-2: #efece4;
-  --text: #24262b;
-  --muted: #6b6f78;
-  --border: #ddd8cc;
-  --accent: #2f5d8a;
-  --accent-contrast: #ffffff;
-  --danger: #b03a2e;
-  --focus: #2f5d8a;
-  --selection: #cfe0f3;
-  --shadow: 0 8px 30px rgb(0 0 0 / 0.08);
+  /* Olive Writer — light */
+  --bg: #fffbdb;
+  --surface: #fffdee;
+  --surface-2: #f4eec6;
+  --text: #2c2a1f;
+  --muted: #6f6845;
+  --border: #e4dbac;
+  --accent: #625834;
+  --accent-contrast: #fffbdb;
+  --danger: #a8382c;
+  --focus: #625834;
+  --selection: #ebe1a4;
+  --shadow: 0 8px 30px rgb(60 52 20 / 0.12);
+  --logo-olive: #625834;
+  --logo-writer: #a59132;
 
   --ui-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --radius: 10px;
 }
 
 :root[data-theme="dark"] {
-  --bg: #16171a;
-  --surface: #1e2024;
-  --surface-2: #26292e;
-  --text: #e4e2dc;
-  --muted: #9a9ea6;
-  --border: #33363c;
-  --accent: #7fb0e0;
-  --accent-contrast: #10141a;
-  --danger: #ef7d70;
-  --focus: #7fb0e0;
-  --selection: #2c4560;
-  --shadow: 0 8px 30px rgb(0 0 0 / 0.45);
+  /* Olive Writer — dark */
+  --bg: #30362f;
+  --surface: #383f37;
+  --surface-2: #424a40;
+  --text: #f1edd2;
+  --muted: #b0ad94;
+  --border: #4d564b;
+  --accent: #d4c06a;
+  --accent-contrast: #30362f;
+  --danger: #f08a7c;
+  --focus: #d4c06a;
+  --selection: #56603f;
+  --shadow: 0 8px 30px rgb(0 0 0 / 0.35);
+  --logo-olive: #fffbdb;
+  --logo-writer: #625834;
 }
 
 *,
@@ -217,10 +223,13 @@ code {
   background: var(--bg);
 }
 .brand {
-  font-family: var(--editor-font), "Courier New", monospace;
-  font-size: 0.95rem;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+.brand svg {
+  display: block;
 }
 .topbar-actions {
   display: flex;

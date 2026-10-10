@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 18,
   toolbarColors: DEFAULT_TOOLBAR_COLORS,
   storageProvider: "server",
-  driveFolderName: "Typewriter",
+  driveFolderName: "Olive Writer",
 };
 
 /* ------------------------------------------------------------------ */

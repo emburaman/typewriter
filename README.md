@@ -1,6 +1,6 @@
-# Typewriter
+# Olive Writer
 
-A distraction-free writing app that runs in Docker. Open it, type, and stay in flow: the
+A distraction-free typewriter-style writing app that runs in Docker. Open it, type, and stay in flow: the
 interface fades away while you write. Formatting is limited on purpose and fully reachable from
 the keyboard. Your words are auto-saved in the browser every 5 seconds and can be saved to the
 server (MySQL) and, if you want, to Google Drive.
@@ -24,7 +24,8 @@ server (MySQL) and, if you want, to Google Drive.
 
 | | |
 |---|---|
-| **Clean UI** | Centered writing column, typewriter-style font, and a focus mode where the header, toolbar and status bar fade out while you type. **Light / Dark / System** themes, applied before first paint so the screen never flashes. |
+| **Clean UI** | Centered writing column, typewriter-style font, and a focus mode where the header, toolbar and status bar fade out while you type. **Light / Dark / System** themes in the Olive Writer palette, applied before first paint so the screen never flashes. |
+| **Typewriter sound** | Every keystroke makes a typewriter strike. Space, Backspace and Enter (carriage return plus bell) each have their own sound. Turn it on or off with the speaker icon; the choice is kept in a cookie. |
 | **Simple formatting** | Bold, italic, underline, up to **5 font colors** from a palette you choose, bulleted and numbered lists. |
 | **Keyboard-first** | `Ctrl+B/I/U`, `Ctrl+1…5` for colors, `Ctrl+0` for the default color, `1. ` and `- ` start lists, `Tab` right after the bullet/number nests the item, `Ctrl+S` saves. |
 | **Fonts** | Any Google Fonts family, with a live preview. You get a curated list by default, or the full catalog if you set a Google Fonts API key. |
@@ -153,7 +154,7 @@ Values already set in the environment, for example by Compose, take precedence o
    then choose **Server + Google Drive**.
 
 From then on, every save (`Ctrl+S`) also uploads the document to the chosen Drive folder as a
-Google Doc (created automatically, `Typewriter` by default). The app requests the
+Google Doc (created automatically, `Olive Writer` by default). The app requests the
 `drive.file` scope, so it **can only see files it created**, not the rest of your Drive. If the
 Drive upload fails, the server save still succeeds and the app shows a notice.
 
@@ -176,10 +177,12 @@ The full manual and automated checklist is in **[docs/TESTING.md](docs/TESTING.m
 
 ```
 app/                 Next.js App Router: / (editor), /settings, global styles
+assets/brand/        Original "Olive" / "Writer" logo SVGs (rendered via components/Logo.tsx)
 components/          React client components (editor screen, toolbar, settings, drawer, providers)
 lib/api/             Centralized typed API client: the only code in the UI that calls fetch()
 lib/editor/          TipTap extensions (color shortcuts, Tab behavior) and browser draft storage
 lib/hooks/           Google Fonts loader
+lib/sound/           Typewriter sound synthesis (Web Audio), key → sound mapping, cookie preference
 lib/shared/          Types + zod schemas shared by UI and server
 server/              Express 5: app, routes, repositories (SQL), services (Drive, fonts, crypto)
 db/migrations/       Ordered SQL migrations, applied automatically at startup
