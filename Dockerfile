@@ -17,9 +17,11 @@ FROM deps AS dev
 ENV NODE_ENV=development \
     PORT=4000 \
     WATCHPACK_POLLING=true
+# Record which lockfile these node_modules were installed from (see scripts/dev-start.sh).
+RUN sha256sum package-lock.json | cut -d' ' -f1 > node_modules/.package-lock.sha256
 COPY . .
 EXPOSE 4000
-CMD ["npm", "run", "dev"]
+CMD ["sh", "scripts/dev-start.sh"]
 
 # ---- build ----
 FROM deps AS build

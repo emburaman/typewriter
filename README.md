@@ -50,6 +50,8 @@ Open **http://localhost:4000**.
 - `.env.local` already contains throwaway development credentials, so no setup is needed.
 - Source files are bind-mounted, so pages hot-reload and the server restarts when you edit `server/`.
 - Database migrations in `db/migrations/` run automatically each time the app starts.
+- When `package-lock.json` changes (after a `git pull` that adds a dependency, for example), the
+  app container installs the new packages on its next start (`scripts/dev-start.sh`).
 - MySQL is also published on `localhost:3306`, so host tools (and `npm run dev`, see below) can use it.
 
 Useful commands:
@@ -191,6 +193,22 @@ db/migrations/       Ordered SQL migrations, applied automatically at startup
 tests/unit, tests/e2e
 docs/                Architecture, features, API reference, test checklist
 ```
+
+## Troubleshooting
+
+**`Module not found: Can't resolve '<package>'` in the dev container.** Dependencies are
+reinstalled automatically when `package-lock.json` changes, so restarting is usually enough:
+`docker compose up --build`. If the container's `node_modules` volume ever gets out of sync
+anyway, reset that volume only. Your dev database is untouched:
+
+```bash
+docker compose rm -sfv app     # removes the app container and its node_modules / .next volumes
+docker compose up --build
+```
+
+Avoid `docker compose down -v` for this. It also deletes the `mysql-dev-data` volume, which holds your documents.
+
+**Running on the host (`npm run dev`)** after pulling new code: run `npm install` first.
 
 ## Limitations and roadmap notes
 
