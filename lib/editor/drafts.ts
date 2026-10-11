@@ -1,12 +1,14 @@
 import type { EditorJson } from "@/lib/shared/schemas";
+import { scopedKey } from "@/lib/storageScope";
 
 /**
  * Browser-side draft storage ("browser memory" autosave). Everything is namespaced under
  * `typewriter:` in localStorage. Storage can be unavailable (private mode) or full; those
  * failures are reported to the caller rather than thrown into the editor.
  */
-const PREFIX = "typewriter:draft:";
-const CURRENT_KEY = "typewriter:current";
+// Keys are per user (see lib/storageScope.ts); computed on use because the user is set at sign-in.
+const prefix = () => scopedKey("draft:");
+const currentKey = () => scopedKey("current");
 
 export interface LocalDraft {
   id: string;
@@ -57,7 +59,7 @@ function parseDraft(raw: string | null): LocalDraft | null {
 }
 
 export function readDraft(id: string): LocalDraft | null {
-  return parseDraft(storage()?.getItem(PREFIX + id) ?? null);
+  return parseDraft(storage()?.getItem(prefix() + id) ?? null);
 }
 
 /** Returns false if the draft could not be written (storage blocked or quota exceeded). */
@@ -65,7 +67,7 @@ export function writeDraft(draft: LocalDraft): boolean {
   const s = storage();
   if (!s) return false;
   try {
-    s.setItem(PREFIX + draft.id, JSON.stringify(draft));
+    s.setItem(prefix() + draft.id, JSON.stringify(draft));
     return true;
   } catch (err) {
     console.error("[drafts] could not save draft locally:", err);
@@ -74,7 +76,7 @@ export function writeDraft(draft: LocalDraft): boolean {
 }
 
 export function removeDraft(id: string): void {
-  storage()?.removeItem(PREFIX + id);
+  storage()?.removeItem(prefix() + id);
 }
 
 /** Drafts that never reached the server (or have newer local edits). */
@@ -84,7 +86,7 @@ export function listUnsyncedDrafts(): LocalDraft[] {
   const drafts: LocalDraft[] = [];
   for (let i = 0; i < s.length; i++) {
     const key = s.key(i);
-    if (!key?.startsWith(PREFIX)) continue;
+    if (!key?.startsWith(prefix())) continue;
     const draft = parseDraft(s.getItem(key));
     if (draft?.unsynced) drafts.push(draft);
   }
@@ -92,12 +94,12 @@ export function listUnsyncedDrafts(): LocalDraft[] {
 }
 
 export function getCurrentDocId(): string | null {
-  return storage()?.getItem(CURRENT_KEY) ?? null;
+  return storage()?.getItem(currentKey()) ?? null;
 }
 
 export function setCurrentDocId(id: string): void {
   try {
-    storage()?.setItem(CURRENT_KEY, id);
+    storage()?.setItem(currentKey(), id);
   } catch (err) {
     console.warn("[drafts] could not remember current document:", err);
   }

@@ -69,8 +69,10 @@ docs/                   Architecture, API reference, feature docs
 a folder moves its contents up a level in a transaction first, so nothing is ever cascaded away.
 Folder moves are checked for cycles with a recursive CTE (`WITH RECURSIVE ancestors …`).
 
-The app is **single-user / self-hosted** by design (one settings row, one Drive connection).
-Multi-user auth is a future feature; the schema keeps per-row ids so it can be added.
+**Multi-user** since migration 005: `users` (Google identity, role, invited state), `sessions`
+(SHA-256 of the cookie token), `user_settings` and `drive_connections` (per user), and `user_id`
+on `documents` and `folders`. The old single-row `settings` / `google_credentials` tables are only
+read once, when the first admin claims pre-account data.
 
 ## Key flows
 
@@ -108,6 +110,14 @@ The chosen family is loaded with a `fonts.googleapis.com/css2` `<link>`.
   our own nodes: `footnoteReference` / `footnotes` / `footnote` (a plugin keeps the numbering, note
   order and anchors consistent after every change), `videoEmbed` (stores only provider + id, with
   the iframe src rebuilt on render) and `mediaFile` (http(s) audio/video only).
+* **Authentication**: Google sign-in (`openid email profile`), invite-only, sessions in an
+  httpOnly SameSite=Lax cookie. Only a token hash is stored. `sessionMiddleware` sets `req.user`;
+  `requireAuth` / `requireAdmin` guard routers; `sameOriginForWrites` refuses cross-site writes.
+  Sign-in and Drive share one OAuth client and redirect URI, and the one-time `state` records the
+  flow (`login` | `drive` + user). Every repository function takes a `userId` and every query
+  filters on it. Client-generated document ids can't be used to overwrite another user's row
+  (the upsert checks the owner inside a transaction). The first admin is created under a MySQL
+  named lock (`GET_LOCK`), so concurrent first sign-ins can't create two admins.
 * **Drive folder mirroring** (`server/services/driveTree.ts`): each app folder caches its Drive
   folder id (`folders.drive_folder_id`, migration 004). Every operation re-checks the Drive side
   (exists, not trashed, right name, right parent) and repairs it, so failed or partial syncs and

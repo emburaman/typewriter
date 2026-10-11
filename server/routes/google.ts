@@ -1,20 +1,43 @@
 import { Router } from "express";
 import { z } from "zod";
+import { HttpError } from "../errors.js";
+import { completeGoogleLogin, currentUser, startSession } from "../services/auth.js";
 import * as drive from "../services/googleDrive.js";
 import * as driveSync from "../services/driveSync.js";
-import { HttpError } from "../errors.js";
+import { consumeState } from "../services/oauth.js";
 
+/** The signed-in user's Google Drive connection (mounted behind requireAuth). */
 export const googleRouter = Router();
 
 /** GET /api/google/status */
-googleRouter.get("/status", async (_req, res) => {
-  res.status(200).json(await drive.getStatus());
+googleRouter.get("/status", async (req, res) => {
+  res.status(200).json(await drive.getStatus(currentUser(req).id));
 });
 
-/** GET /api/google/auth-url — the consent URL the browser should navigate to. */
-googleRouter.get("/auth-url", (_req, res) => {
-  res.status(200).json({ url: drive.createAuthUrl() });
+/** GET /api/google/auth-url — the Drive consent URL the browser should navigate to. */
+googleRouter.get("/auth-url", (req, res) => {
+  res.status(200).json({ url: drive.createAuthUrl(currentUser(req).id) });
 });
+
+/**
+ * POST /api/google/sync — mirror every folder and upload every document to Drive now.
+ * Works whatever the storage setting is, as long as Drive is connected with Drive access.
+ */
+googleRouter.post("/sync", async (req, res) => {
+  const user = currentUser(req);
+  if (!(await drive.isConnectedWithDriveAccess(user.id))) {
+    throw new HttpError(409, "google_not_connected", "Connect Google Drive (with Drive access) in Settings first.");
+  }
+  res.status(200).json(await driveSync.syncEverything(user.id));
+});
+
+/** DELETE /api/google/connection — disconnect Drive. */
+googleRouter.delete("/connection", async (req, res) => {
+  await drive.disconnect(currentUser(req).id);
+  res.status(204).end();
+});
+
+/* ---------------------------------------------------------------------- */
 
 const callbackQuery = z.object({
   code: z.string().min(1).optional(),
@@ -23,41 +46,47 @@ const callbackQuery = z.object({
 });
 
 /**
- * GET /api/google/callback — OAuth redirect target. Always redirects back to the
- * settings page with a `google=` flag so the UI can show the outcome.
+ * GET /api/google/callback — the one OAuth redirect target (public). The `state` says whether
+ * this round-trip was a sign-in (→ start a session, go to the editor) or a Drive connection for
+ * the signed-in user (→ back to Settings). Errors redirect with a reason instead of a JSON body.
  */
-googleRouter.get("/callback", async (req, res) => {
+export const googleCallbackRouter = Router();
+
+googleCallbackRouter.get("/callback", async (req, res) => {
   const q = callbackQuery.parse(req.query);
-  const back = (status: string, message?: string) => {
-    const params = new URLSearchParams({ google: status });
-    if (message) params.set("message", message);
-    res.redirect(303, `/settings?${params.toString()}`);
-  };
+  const go = (path: string, params: Record<string, string>) => res.redirect(303, `${path}?${new URLSearchParams(params).toString()}`);
 
-  if (q.error) return back("denied", q.error);
-  if (!q.code || !q.state) return back("error", "Missing code or state from Google");
+  let purpose;
   try {
-    await drive.handleCallback(q.code, q.state);
-    back("connected");
+    purpose = consumeState(q.state ?? "");
   } catch (err) {
-    console.error("[google] OAuth callback failed:", err);
-    back("error", err instanceof HttpError ? err.message : "Could not complete Google sign-in");
+    return go("/login", { error: "expired", message: err instanceof Error ? err.message : "Invalid sign-in link" });
   }
-});
 
-/**
- * POST /api/google/sync — mirror every folder and upload every document to Drive now.
- * Works whatever the storage setting is, as long as Drive is connected with Drive access.
- */
-googleRouter.post("/sync", async (_req, res) => {
-  if (!(await drive.isConnectedWithDriveAccess())) {
-    throw new HttpError(409, "google_not_connected", "Connect Google Drive (with Drive access) in Settings first.");
+  if (purpose.kind === "login") {
+    if (q.error || !q.code) return go("/login", { error: q.error === "access_denied" ? "denied" : "google" });
+    try {
+      const result = await completeGoogleLogin(q.code);
+      if (typeof result === "string") return go("/login", { error: result });
+      await startSession(req, res, result);
+      return res.redirect(303, "/");
+    } catch (err) {
+      console.error("[auth] Google sign-in failed:", err);
+      return go("/login", { error: "google", message: err instanceof HttpError ? err.message : "Google sign-in failed" });
+    }
   }
-  res.status(200).json(await driveSync.syncEverything());
-});
 
-/** DELETE /api/google/connection — disconnect Drive. */
-googleRouter.delete("/connection", async (_req, res) => {
-  await drive.disconnect();
-  res.status(204).end();
+  // Drive connection: must finish in the same account that started it.
+  if (req.user?.id !== purpose.userId) {
+    return go("/settings", { google: "error", message: "Sign in again, then reconnect Google Drive." });
+  }
+  if (q.error) return go("/settings", { google: "denied", message: q.error });
+  if (!q.code) return go("/settings", { google: "error", message: "Missing code from Google" });
+  try {
+    await drive.completeDriveConnection(purpose.userId, q.code);
+    return go("/settings", { google: "connected" });
+  } catch (err) {
+    console.error("[google] Drive connection failed:", err);
+    return go("/settings", { google: "error", message: err instanceof HttpError ? err.message : "Could not connect Google Drive" });
+  }
 });

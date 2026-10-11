@@ -24,6 +24,7 @@ import { useSettings } from "./SettingsProvider";
 import { useSound } from "./SoundProvider";
 import { SoundToggle } from "./SoundToggle";
 import { ThemeToggle } from "./ThemeToggle";
+import { UserMenu } from "./UserMenu";
 import { Toolbar } from "./Toolbar";
 import { useToast } from "./ToastProvider";
 
@@ -367,6 +368,7 @@ export function TypewriterApp() {
           <Link href="/settings" className="icon-btn" title="Settings" aria-label="Settings">
             <Icon name="settings" />
           </Link>
+          <UserMenu />
         </nav>
       </header>
 

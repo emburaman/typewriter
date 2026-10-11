@@ -1,5 +1,19 @@
 # Features
 
+## 0. Accounts
+
+- **Sign in with Google**, invite-only. The first person to sign in becomes the admin (restricted
+  to `ADMIN_EMAIL` when set) and keeps any writing that was on the server before accounts existed.
+- **Settings → Users** (admins): invite an email as Member or Admin, cancel invites, remove
+  people. Removing someone deletes their writing on the server; their Drive copies remain.
+- **Everything is per person**: documents, folders, settings (theme, font, colors, storage) and
+  the Google Drive connection. Each person connects their own Drive in Settings → Storage.
+- The avatar menu at the top right shows who is signed in and has *Sign out*. **Settings →
+  Account** shows the same.
+- Browser drafts and remembered UI state are stored per person, so two people can share a
+  browser without seeing each other's drafts. The typewriter-sound choice is a per-browser
+  cookie.
+
 ## 1. Clean, distraction-free UI
 
 - **Branding**: the *Olive Writer* wordmark (from `assets/brand/`) sits in the top-left corner. Its

@@ -1,12 +1,14 @@
 import type { RowDataPacket } from "mysql2/promise";
 import { getPool } from "../db/pool.js";
 
+/** A user's Google Drive connection (tokens are AES-256-GCM encrypted by the app). */
 export interface StoredGoogleCredentials {
   accessTokenEnc: string | null;
   refreshTokenEnc: string | null;
   expiryDate: number | null;
   scope: string | null;
   accountEmail: string | null;
+  /** The root Drive folder ("Olive Writer") documents are mirrored into. */
   folderId: string | null;
 }
 
@@ -19,10 +21,11 @@ interface CredentialsRow extends RowDataPacket {
   folder_id: string | null;
 }
 
-export async function getCredentials(): Promise<StoredGoogleCredentials | null> {
+export async function getCredentials(userId: string): Promise<StoredGoogleCredentials | null> {
   const [rows] = await getPool().execute<CredentialsRow[]>(
     `SELECT access_token_enc, refresh_token_enc, expiry_date, scope, account_email, folder_id
-       FROM google_credentials WHERE id = 1`,
+       FROM drive_connections WHERE user_id = ?`,
+    [userId],
   );
   const row = rows[0];
   if (!row) return null;
@@ -37,39 +40,45 @@ export async function getCredentials(): Promise<StoredGoogleCredentials | null> 
   };
 }
 
-/** Creates or replaces the singleton credentials row (on a fresh OAuth connection). */
-export async function saveCredentials(c: StoredGoogleCredentials): Promise<void> {
+/** Creates or replaces the user's connection (on a fresh OAuth connection). */
+export async function saveCredentials(userId: string, c: StoredGoogleCredentials): Promise<void> {
   await getPool().execute(
-    `INSERT INTO google_credentials
-            (id, access_token_enc, refresh_token_enc, expiry_date, scope, account_email, folder_id, connected_at)
-          VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) AS incoming
+    `INSERT INTO drive_connections
+            (user_id, access_token_enc, refresh_token_enc, expiry_date, scope, account_email, folder_id, connected_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) AS incoming
      ON DUPLICATE KEY UPDATE
             access_token_enc = incoming.access_token_enc,
             -- Google only returns a refresh token on first consent; keep the old one otherwise.
-            refresh_token_enc = COALESCE(incoming.refresh_token_enc, google_credentials.refresh_token_enc),
+            refresh_token_enc = COALESCE(incoming.refresh_token_enc, drive_connections.refresh_token_enc),
             expiry_date = incoming.expiry_date,
             scope = incoming.scope,
             account_email = incoming.account_email,
-            folder_id = incoming.folder_id,
+            -- A different Google account has a different Drive: forget the old root folder.
+            folder_id = IF(drive_connections.account_email <=> incoming.account_email, drive_connections.folder_id, NULL),
             connected_at = CURRENT_TIMESTAMP`,
-    [c.accessTokenEnc, c.refreshTokenEnc, c.expiryDate, c.scope, c.accountEmail, c.folderId],
+    [userId, c.accessTokenEnc, c.refreshTokenEnc, c.expiryDate, c.scope, c.accountEmail, c.folderId],
   );
 }
 
 /** Persists refreshed tokens emitted by the OAuth client. */
-export async function updateTokens(accessTokenEnc: string, expiryDate: number | null, refreshTokenEnc: string | null) {
+export async function updateTokens(
+  userId: string,
+  accessTokenEnc: string,
+  expiryDate: number | null,
+  refreshTokenEnc: string | null,
+): Promise<void> {
   await getPool().execute(
-    `UPDATE google_credentials
+    `UPDATE drive_connections
         SET access_token_enc = ?, expiry_date = ?, refresh_token_enc = COALESCE(?, refresh_token_enc)
-      WHERE id = 1`,
-    [accessTokenEnc, expiryDate, refreshTokenEnc],
+      WHERE user_id = ?`,
+    [accessTokenEnc, expiryDate, refreshTokenEnc, userId],
   );
 }
 
-export async function setFolderId(folderId: string | null): Promise<void> {
-  await getPool().execute("UPDATE google_credentials SET folder_id = ? WHERE id = 1", [folderId]);
+export async function setFolderId(userId: string, folderId: string | null): Promise<void> {
+  await getPool().execute("UPDATE drive_connections SET folder_id = ? WHERE user_id = ?", [folderId, userId]);
 }
 
-export async function deleteCredentials(): Promise<void> {
-  await getPool().execute("DELETE FROM google_credentials WHERE id = 1");
+export async function deleteCredentials(userId: string): Promise<void> {
+  await getPool().execute("DELETE FROM drive_connections WHERE user_id = ?", [userId]);
 }

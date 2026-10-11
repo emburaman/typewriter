@@ -12,8 +12,10 @@ client in `lib/api/`.
 | `201 Created` | A resource was created (`POST`, or a `PUT` that inserted) |
 | `204 No Content` | Success with no body (`DELETE`) |
 | `303 See Other` | OAuth callback redirect back to the UI |
+| `401 Unauthorized` | Not signed in (every endpoint except health, auth, fonts and the OAuth callback) |
 | `400 Bad Request` | Validation failed, malformed JSON, invalid id, or a feature isn't configured |
-| `404 Not Found` | Unknown resource or route |
+| `403 Forbidden` | Admin-only endpoint, a refused sign-in, or a cross-site write (`Origin` from another site) |
+| `404 Not Found` | Unknown resource or route, **or one that belongs to another user** (never revealed) |
 | `409 Conflict` | Google Drive isn't connected |
 | `413 Payload Too Large` | Body over 5 MB |
 | `500 Internal Server Error` | Unexpected error (details are logged, never returned) |
@@ -30,6 +32,47 @@ Every error response has this shape:
 Error codes: `bad_request`, `validation_error`, `invalid_json`, `not_found`, `payload_too_large`,
 `google_not_configured`, `google_not_connected`, `google_drive_error`, `invalid_oauth_state`,
 `internal_error`.
+
+## Authentication
+
+Sign-in is "Sign in with Google" for invited accounts only. A session lives in an httpOnly
+`ow_session` cookie (30 days, renewed daily while in use). **Every resource below belongs to the
+signed-in user**: other people's documents, folders, settings and Drive connections are invisible
+(`404`), even if their ids are known.
+
+### `GET /api/auth/config` (public)
+→ `200 {"googleConfigured": bool, "needsSetup": bool, "devLogin": bool}`. `needsSetup` is true
+while no account exists (the next sign-in becomes the admin).
+
+### `GET /api/auth/login` (public, browser navigation)
+→ `303` to Google's account chooser (scopes `openid email profile`). Google returns to
+`/api/google/callback`, which starts a session and redirects to `/`, or to
+`/login?error=not_invited|admin_only|email_unverified|denied|expired|google`.
+
+### `GET /api/auth/me` → `200 AuthUser` · `401`
+```ts
+interface AuthUser { id: string; email: string; name: string | null; avatarUrl: string | null; role: "admin" | "user" }
+```
+
+### `POST /api/auth/logout` → `204`
+
+### `POST /api/auth/dev-login` (test only)
+Body `{"email": "…"}`. Exists only when the server runs with `AUTH_DEV_LOGIN=true`, which is
+refused when `NODE_ENV=production`; otherwise `404`. It follows the same rules as Google
+sign-in. → `200 AuthUser` · `403 not_invited | admin_only`
+
+## Users (admin only)
+
+### `GET /api/users` → `200 UserSummary[]`
+`UserSummary = AuthUser & { status: "active" | "invited", createdAt, lastLoginAt }`
+
+### `POST /api/users`
+Invite: `{"email": "…", "role"?: "user" | "admin"}`. That person can now sign in with the Google
+account for that email. → `201 UserSummary` · `409` (already invited or has an account) · `400`
+
+### `DELETE /api/users/{id}`
+Removes the account **and its documents, folders, settings and Drive connection** on this server
+(Drive copies are untouched). → `204` · `400` (your own account) · `404`
 
 ---
 
@@ -198,9 +241,11 @@ interface GoogleStatus {
 URL. It carries a one-time `state` value (CSRF protection, valid for 10 minutes).
 → `400 google_not_configured` if the server isn't configured.
 
-### `GET /api/google/callback?code=…&state=…`
-OAuth redirect target, called by Google rather than by API clients. It exchanges the code, stores
-the tokens encrypted with AES-256-GCM, and redirects with **`303`** to one of:
+### `GET /api/google/callback?code=…&state=…` (public)
+The single OAuth redirect target, used for both sign-in (see Authentication) and Drive
+connections. The one-time `state` records which flow it is and, for Drive, which user started it.
+The Drive connection must finish in that same user's session. For Drive it exchanges the code,
+stores the user's tokens encrypted with AES-256-GCM, and redirects with **`303`** to one of:
 - `/settings?google=connected`
 - `/settings?google=denied&message=…` (the user declined)
 - `/settings?google=error&message=…` (invalid or expired state, the token exchange failed, or

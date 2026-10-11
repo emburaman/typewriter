@@ -85,8 +85,10 @@ test("autosaves to the browser every 5 seconds and restores after reload", async
   await page.keyboard.type("draft text");
   await expect(page.locator(".statusbar")).toContainText("browser draft", { timeout: 7_000 });
   const draft = await page.evaluate(() => {
-    const id = localStorage.getItem("typewriter:current");
-    return JSON.parse(localStorage.getItem(`typewriter:draft:${id}`) ?? "null") as { unsynced: boolean } | null;
+    // Browser storage is per user: typewriter:<userId>:…
+    const user = localStorage.getItem("typewriter:last-user");
+    const id = localStorage.getItem(`typewriter:${user}:current`);
+    return JSON.parse(localStorage.getItem(`typewriter:${user}:draft:${id}`) ?? "null") as { unsynced: boolean } | null;
   });
   expect(draft?.unsynced).toBe(true);
 
@@ -103,7 +105,7 @@ test("Ctrl+S saves to the server; closing with unsaved changes prompts", async (
   await page.keyboard.press("ControlOrMeta+s");
   await expect(page.locator(".statusbar")).toContainText(/Saved \d/);
 
-  const id = await page.evaluate(() => localStorage.getItem("typewriter:current"));
+  const id = await page.evaluate(() => localStorage.getItem(`typewriter:${localStorage.getItem("typewriter:last-user")}:current`));
   const res = await request.get(`/api/documents/${id}`);
   expect(res.status()).toBe(200);
   expect(await res.json()).toMatchObject({ title: "E2E document", wordCount: 3 });

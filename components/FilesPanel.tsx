@@ -14,6 +14,7 @@ import {
 import { listUnsyncedDrafts, removeDraft, type LocalDraft } from "@/lib/editor/drafts";
 import { ancestorIds, canDrop, childrenOf, descendantIds, folderOptions, type DragItem } from "@/lib/files/tree";
 import type { DocumentSummary, Folder } from "@/lib/shared/schemas";
+import { scopedKey } from "@/lib/storageScope";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
 import { useToast } from "./ToastProvider";
@@ -27,7 +28,7 @@ interface FilesPanelProps {
   onNewDocument: (folderId: string | null) => void;
 }
 
-const EXPANDED_KEY = "typewriter:expanded-folders";
+const expandedKey = () => scopedKey("expanded-folders");
 const DRAG_MIME = "application/x-olive-writer";
 
 const formatDate = (iso: string | number) =>
@@ -36,7 +37,7 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 function readExpanded(): Set<string> {
   try {
-    const raw = window.localStorage.getItem(EXPANDED_KEY);
+    const raw = window.localStorage.getItem(expandedKey());
     const ids: unknown = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string") : []);
   } catch (err) {
@@ -47,7 +48,7 @@ function readExpanded(): Set<string> {
 
 function writeExpanded(ids: Set<string>): void {
   try {
-    window.localStorage.setItem(EXPANDED_KEY, JSON.stringify([...ids]));
+    window.localStorage.setItem(expandedKey(), JSON.stringify([...ids]));
   } catch (err) {
     console.warn("[files] could not remember expanded folders:", err);
   }

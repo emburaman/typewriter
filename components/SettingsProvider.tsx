@@ -4,9 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getSettings, updateSettings as putSettings } from "@/lib/api";
 import { DEFAULT_SETTINGS, settingsSchema, type Settings, type SettingsUpdate } from "@/lib/shared/schemas";
 import { useGoogleFont } from "@/lib/hooks/useGoogleFont";
+import { scopedKey } from "@/lib/storageScope";
+import { useAuth } from "./AuthProvider";
 
-/** Mirror of the server settings in localStorage so the theme applies before first paint. */
-export const SETTINGS_STORAGE_KEY = "typewriter:settings";
+/** Mirror of the user's server settings in localStorage, so the theme applies before first paint. */
+const settingsKey = () => scopedKey("settings");
 
 interface SettingsContextValue {
   settings: Settings;
@@ -21,7 +23,7 @@ const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 function readMirror(): Settings {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    const raw = window.localStorage.getItem(settingsKey());
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = settingsSchema.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : DEFAULT_SETTINGS;
@@ -33,7 +35,7 @@ function readMirror(): Settings {
 
 function writeMirror(settings: Settings): void {
   try {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    window.localStorage.setItem(settingsKey(), JSON.stringify(settings));
   } catch (err) {
     console.warn("[settings] could not write local settings mirror:", err);
   }
@@ -57,8 +59,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const systemDark = useSystemPrefersDark();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
 
   useEffect(() => {
+    if (!userId) return; // sign-in page: no account, keep defaults
     setSettings(readMirror());
     let cancelled = false;
     getSettings()
@@ -72,7 +77,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userId]);
 
   const update = useCallback(async (change: SettingsUpdate) => {
     const previous = settingsRef.current;

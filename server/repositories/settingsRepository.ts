@@ -28,10 +28,12 @@ function rowToSettings(row: SettingsRow): Settings {
   return parsed.data;
 }
 
-export async function getSettings(): Promise<Settings> {
+/** A user's settings (defaults until they change something). */
+export async function getSettings(userId: string): Promise<Settings> {
   const [rows] = await getPool().execute<SettingsRow[]>(
     `SELECT theme, font_family, font_size, toolbar_colors, storage_provider, drive_folder_name
-       FROM settings WHERE id = 1`,
+       FROM user_settings WHERE user_id = ?`,
+    [userId],
   );
   const row = rows[0];
   return row ? rowToSettings(row) : DEFAULT_SETTINGS;
@@ -46,18 +48,18 @@ const COLUMN_BY_FIELD = {
   driveFolderName: "drive_folder_name",
 } as const satisfies Record<keyof Settings, string>;
 
-/** Applies a partial update (upserting the singleton row) and returns the new settings. */
-export async function updateSettings(update: SettingsUpdate): Promise<Settings> {
-  const merged: Settings = { ...(await getSettings()), ...update };
+/** Applies a partial update (creating the user's row if needed) and returns the new settings. */
+export async function updateSettings(userId: string, update: SettingsUpdate): Promise<Settings> {
+  const merged: Settings = { ...(await getSettings(userId)), ...update };
   const fields = Object.keys(COLUMN_BY_FIELD) as (keyof Settings)[];
   const columns = fields.map((f) => COLUMN_BY_FIELD[f]);
   const values = fields.map((f) => (f === "toolbarColors" ? JSON.stringify(merged[f]) : merged[f]));
 
   await getPool().execute<ResultSetHeader>(
-    `INSERT INTO settings (id, ${columns.join(", ")})
-          VALUES (1, ${columns.map(() => "?").join(", ")}) AS incoming
+    `INSERT INTO user_settings (user_id, ${columns.join(", ")})
+          VALUES (?, ${columns.map(() => "?").join(", ")}) AS incoming
      ON DUPLICATE KEY UPDATE ${columns.map((c) => `${c} = incoming.${c}`).join(", ")}`,
-    values,
+    [userId, ...values],
   );
   return merged;
 }

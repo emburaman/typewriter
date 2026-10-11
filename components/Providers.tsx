@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { AuthProvider } from "./AuthProvider";
 import { SettingsProvider } from "./SettingsProvider";
 import { SoundProvider } from "./SoundProvider";
 import { ToastProvider } from "./ToastProvider";
@@ -8,9 +9,11 @@ import { ToastProvider } from "./ToastProvider";
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <ToastProvider>
-      <SettingsProvider>
-        <SoundProvider>{children}</SoundProvider>
-      </SettingsProvider>
+      <AuthProvider>
+        <SettingsProvider>
+          <SoundProvider>{children}</SoundProvider>
+        </SettingsProvider>
+      </AuthProvider>
     </ToastProvider>
   );
 }

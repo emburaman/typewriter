@@ -22,7 +22,7 @@ export const viewport: Viewport = {
  * Mirrors the logic in SettingsProvider, reading the localStorage settings mirror.
  */
 const bootScript = `(function(){var d=document.documentElement,t='system',s=null;
-try{s=JSON.parse(localStorage.getItem('typewriter:settings')||'null');}catch(e){s=null;}
+try{var u=localStorage.getItem('typewriter:last-user');s=u?JSON.parse(localStorage.getItem('typewriter:'+u+':settings')||'null'):null;}catch(e){s=null;}
 if(s&&s.theme)t=s.theme;
 if(t==='system')t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
 d.dataset.theme=t;d.style.colorScheme=t;

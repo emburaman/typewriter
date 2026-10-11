@@ -60,6 +60,11 @@ export async function request<T>(method: Method, path: string, body?: unknown): 
   }
 
   if (!res.ok) {
+    // Session expired or signed out elsewhere: go to the sign-in page (except for the
+    // auth endpoints themselves, whose callers handle 401).
+    if (res.status === 401 && !path.startsWith("/auth/") && typeof window !== "undefined" && window.location.pathname !== "/login") {
+      window.location.assign("/login");
+    }
     if (isApiErrorBody(payload)) {
       throw new ApiError(res.status, payload.error.code, payload.error.message, payload.error.details);
     }

@@ -12,7 +12,8 @@ server (MySQL) and, if you want, to Google Drive.
 - [Production deployment](#production-deployment)
 - [Running without Docker](#running-without-docker)
 - [Configuration](#configuration)
-- [Google Drive setup](#google-drive-setup)
+- [Accounts](#accounts)
+- [Google sign-in and Drive setup](#google-sign-in-and-drive-setup)
 - [Testing](#testing)
 - [Project structure](#project-structure)
 - More docs: [Features](docs/FEATURES.md) · [API reference](docs/API.md) ·
@@ -24,6 +25,7 @@ server (MySQL) and, if you want, to Google Drive.
 
 | | |
 |---|---|
+| **Accounts** | "Sign in with Google", invite-only. The first person to sign in becomes the admin and invites others in Settings → Users. Each person's documents, folders, settings and Google Drive connection are private to them. |
 | **Clean UI** | Centered writing column, typewriter-style font, and a focus mode where the header, toolbar and status bar fade out while you type. **Light / Dark / System** themes in the Olive Writer palette, applied before first paint so the screen never flashes. |
 | **Typewriter sound** | Every keystroke makes a typewriter strike. Space, Backspace and Enter (carriage return plus bell) each have their own sound. Turn it on or off with the speaker icon; the choice is kept in a cookie. |
 | **Simple formatting** | Bold, italic, underline, up to **5 font colors** from a palette you choose, bulleted and numbered lists. |
@@ -45,9 +47,11 @@ git clone <this repo> typewriter && cd typewriter
 docker compose up --build
 ```
 
-Open **http://localhost:4000**.
+Open **http://localhost:4000** and sign in with Google.
 
-- `.env.local` already contains throwaway development credentials, so no setup is needed.
+- `.env.local` contains throwaway database credentials. Signing in needs a Google OAuth client:
+  see [Google sign-in and Drive setup](#google-sign-in-and-drive-setup) and set
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `ADMIN_EMAIL`.
 - Source files are bind-mounted, so pages hot-reload and the server restarts when you edit `server/`.
 - Database migrations in `db/migrations/` run automatically each time the app starts.
 - When `package-lock.json` changes (after a `git pull` that adds a dependency, for example), the
@@ -127,15 +131,36 @@ Every variable is documented in **[.env.example](.env.example)**. The main ones:
 | `APP_URL` | `http://localhost:4000` | Public URL. Used to build the OAuth redirect URI. |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | — | App → MySQL connection. Compose sets `DB_HOST=db`. |
 | `MYSQL_*` | — | Bootstrap values for the MySQL container. Must match the `DB_*` values. |
-| `TOKEN_ENCRYPTION_KEY` | — | 32 bytes, base64 (`openssl rand -base64 32`). Encrypts Google tokens at rest. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Enable Google Drive |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | **Required.** "Sign in with Google", and Google Drive. |
+| `ADMIN_EMAIL` | — | Only this Google account can become the first admin. **Set it** on any server others can reach. |
+| `TOKEN_ENCRYPTION_KEY` | — | 32 bytes, base64 (`openssl rand -base64 32`). Encrypts Drive tokens at rest; needed for Drive. |
+| `AUTH_DEV_LOGIN` | `false` | Test-only password-less sign-in for the browser tests. The app refuses to start with it in production. |
 | `GOOGLE_REDIRECT_URI` | `${APP_URL}/api/google/callback` | Override the OAuth callback |
 | `GOOGLE_FONTS_API_KEY` | — | Offer the full Google Fonts catalog in Settings |
 
 The app checks its configuration at boot and exits with a clear message if a value is invalid.
 Values already set in the environment, for example by Compose, take precedence over `.env*` files.
 
-## Google Drive setup
+## Accounts
+
+- **Sign in with Google.** Sign-in only asks Google for your name and email. Connecting Google
+  Drive is a separate step in Settings, and each person can connect any Google account's Drive.
+- **Invite-only.** The first person to sign in becomes the **admin**, and only the Google account
+  in `ADMIN_EMAIL` can do this if it's set. After that, only emails the admin adds in
+  **Settings → Users** can sign in, using the Google account with that email. The admin can make
+  other admins, cancel invites and remove people. Removing someone deletes their writing on this
+  server; copies in their own Google Drive stay.
+- **Private by default.** Documents, folders, settings and the Drive connection belong to one
+  person, and every database query is scoped to the signed-in user. Browser drafts are kept per
+  user too, so people can share a computer.
+- **Upgrading from the single-user version:** after the upgrade, sign in first with your own
+  Google account (set `ADMIN_EMAIL` to it). You become the admin and keep every existing
+  document, folder, setting and your Drive connection.
+- **Sessions** last 30 days, renew while you use the app, and end at *Sign out*. They're kept in
+  an httpOnly, SameSite=Lax cookie (Secure on https), and the server stores only a hash of each
+  session token. Requests that change data from another site are refused.
+
+## Google sign-in and Drive setup
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a project (or choose an existing one).
 2. **APIs & Services → Library**: enable the **Google Drive API**.
@@ -145,15 +170,20 @@ Values already set in the environment, for example by Compose, take precedence o
    - Application type: **Web application**
    - Authorized redirect URI: `<APP_URL>/api/google/callback`
      (for example `http://localhost:4000/api/google/callback`)
-5. Put the client ID and secret into your env file, together with a `TOKEN_ENCRYPTION_KEY`:
+5. Put the client ID and secret into your env file, together with `ADMIN_EMAIL` (your Google
+   account) and a `TOKEN_ENCRYPTION_KEY`:
 
    ```bash
    GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=GOCSPX-...
+   ADMIN_EMAIL=you@gmail.com
    TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)   # paste the generated value
    ```
 
-6. Restart the app. In **Settings → Storage**, click **Connect Google Drive**. On Google's
+   Sign-in and Drive share this one redirect URI, so nothing else needs registering. While the
+   Google app is in *Testing* mode, add every person who will sign in as a test user, or
+   publish the app (Audience → Publish app).
+6. Restart the app and sign in. In **Settings → Storage**, click **Connect Google Drive**. On Google's
    permission screen, **tick the Google Drive box** (or "Select all"), then choose
    **Server + Google Drive**.
 7. Click **Sync everything to Drive now** to copy the folders and documents you already have.
@@ -171,9 +201,12 @@ Optional: to get the full Google Fonts catalog, create an API key, restrict it t
 ```bash
 npm run typecheck
 npm test                         # unit: schemas, encryption, error mapping, utils
-docker compose up -d --build     # then, in another terminal:
 npx playwright install chromium  # first time only
-npm run test:e2e                 # browser: shortcuts, lists, autosave, save, unload prompt, theme, settings
+# Browser tests sign in through the test-only endpoint, so run the app in test mode on a
+# throwaway database (never NODE_ENV=production; the app refuses AUTH_DEV_LOGIN there):
+npm run build
+NODE_ENV=test AUTH_DEV_LOGIN=true npm run start:test   # point DB_* at a throwaway database
+npm run test:e2e                 # in another terminal
 ```
 
 The full manual and automated checklist is in **[docs/TESTING.md](docs/TESTING.md)**.
@@ -214,9 +247,6 @@ Avoid `docker compose down -v` for this. It also deletes the `mysql-dev-data` vo
 
 ## Limitations and roadmap notes
 
-- **Single-user by design.** There is no login. Anyone who can reach the app can use it and its
-  Drive connection. Expose it only on a trusted network or behind an authenticating proxy until
-  accounts are added.
 - Browsers show their own fixed wording in the "Leave site?" dialog. A page cannot add a
   "Save" button to it. Your work is still kept in the browser draft and offered back on the next visit.
 - Deleting a document removes the server copy only. Any Drive copy stays in Drive.

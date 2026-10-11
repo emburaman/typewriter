@@ -1,12 +1,15 @@
 import express, { type Express } from "express";
 import helmet from "helmet";
 import { apiErrorHandler, apiNotFoundHandler } from "./errors.js";
+import { authRouter } from "./routes/auth.js";
 import { documentsRouter } from "./routes/documents.js";
 import { foldersRouter } from "./routes/folders.js";
 import { fontsRouter } from "./routes/fonts.js";
-import { googleRouter } from "./routes/google.js";
+import { googleCallbackRouter, googleRouter } from "./routes/google.js";
 import { healthRouter } from "./routes/health.js";
 import { settingsRouter } from "./routes/settings.js";
+import { usersRouter } from "./routes/users.js";
+import { requireAdmin, requireAuth, sameOriginForWrites, sessionMiddleware } from "./services/auth.js";
 
 /** Router containing every REST endpoint, mounted at /api. */
 export function createApiRouter(): express.Router {
@@ -17,12 +20,21 @@ export function createApiRouter(): express.Router {
     next();
   });
 
+  api.use(sameOriginForWrites);
+  api.use(sessionMiddleware);
+
+  // Public
   api.use("/health", healthRouter);
-  api.use("/settings", settingsRouter);
-  api.use("/documents", documentsRouter);
-  api.use("/folders", foldersRouter);
-  api.use("/google", googleRouter);
+  api.use("/auth", authRouter);
+  api.use("/google", googleCallbackRouter); // OAuth redirect target for sign-in and Drive
   api.use("/fonts", fontsRouter);
+
+  // Signed-in users only; every handler below scopes its queries to the current user.
+  api.use("/settings", requireAuth, settingsRouter);
+  api.use("/documents", requireAuth, documentsRouter);
+  api.use("/folders", requireAuth, foldersRouter);
+  api.use("/google", requireAuth, googleRouter);
+  api.use("/users", requireAuth, requireAdmin, usersRouter);
 
   api.use(apiNotFoundHandler);
   api.use(apiErrorHandler);

@@ -10,7 +10,7 @@ import { runMigrations } from "./db/migrate.js";
  * Next.js (App Router). Migrations run before the server starts accepting traffic.
  */
 async function main() {
-  const dev = !config.isProduction;
+  const dev = config.isDev;
 
   await waitForDatabase();
   const applied = await runMigrations();

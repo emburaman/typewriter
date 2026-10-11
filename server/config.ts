@@ -31,6 +31,11 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: optionalString,
   GOOGLE_REDIRECT_URI: z.preprocess(emptyToUndefined, z.url().optional()),
   GOOGLE_FONTS_API_KEY: optionalString,
+
+  /** Only this Google account may become the first admin. Strongly recommended on public servers. */
+  ADMIN_EMAIL: z.preprocess(emptyToUndefined, z.email().optional()),
+  /** Test-only password-less sign-in (POST /api/auth/dev-login). Refused when NODE_ENV=production. */
+  AUTH_DEV_LOGIN: z.preprocess((v) => v === "true" || v === "1", z.boolean()).default(false),
 });
 
 function loadConfig() {
@@ -49,11 +54,19 @@ function loadConfig() {
     }
   }
 
-  const googleConfigured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && encryptionKey);
+  if (env.AUTH_DEV_LOGIN && env.NODE_ENV === "production") {
+    throw new Error("AUTH_DEV_LOGIN must never be enabled when NODE_ENV=production");
+  }
+
+  // Sign-in only needs the OAuth client; storing Drive tokens also needs the encryption key.
+  const oauthConfigured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+  const googleConfigured = oauthConfigured && Boolean(encryptionKey);
 
   return {
     nodeEnv: env.NODE_ENV,
     isProduction: env.NODE_ENV === "production",
+    /** Next.js dev server (hot reload) only in development; "test" serves the production build. */
+    isDev: env.NODE_ENV === "development",
     port: env.PORT,
     appUrl: env.APP_URL.replace(/\/$/, ""),
     db: {
@@ -65,7 +78,15 @@ function loadConfig() {
       connectionLimit: env.DB_CONNECTION_LIMIT,
     },
     encryptionKey,
+    /** https deployments get Secure cookies. */
+    secureCookies: env.APP_URL.startsWith("https://"),
+    auth: {
+      oauthConfigured,
+      adminEmail: env.ADMIN_EMAIL?.toLowerCase() ?? null,
+      devLogin: env.AUTH_DEV_LOGIN,
+    },
     google: {
+      /** Drive storage available (OAuth client + token encryption key). */
       configured: googleConfigured,
       clientId: env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: env.GOOGLE_CLIENT_SECRET ?? "",

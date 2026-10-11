@@ -178,6 +178,45 @@ export interface GoogleStatus {
 }
 
 /* ------------------------------------------------------------------ */
+/* Users & authentication                                              */
+/* ------------------------------------------------------------------ */
+
+export const ROLES = ["admin", "user"] as const;
+export type Role = (typeof ROLES)[number];
+
+/** The signed-in user (GET /api/auth/me). */
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: Role;
+}
+
+/** Public info for the sign-in page (GET /api/auth/config). */
+export interface AuthConfig {
+  /** GOOGLE_CLIENT_ID / SECRET are set, so "Sign in with Google" can work. */
+  googleConfigured: boolean;
+  /** No account exists yet: the next sign-in creates the admin. */
+  needsSetup: boolean;
+  /** Test-only sign-in is enabled (never in production). */
+  devLogin: boolean;
+}
+
+/** Admin view of an account (GET /api/users). */
+export interface UserSummary extends AuthUser {
+  /** "invited" until the person signs in for the first time. */
+  status: "active" | "invited";
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export const inviteSchema = z
+  .object({ email: z.string().trim().toLowerCase().pipe(z.email()), role: z.enum(ROLES).default("user") })
+  .strict();
+export type Invite = z.input<typeof inviteSchema>;
+
+/* ------------------------------------------------------------------ */
 /* Errors                                                              */
 /* ------------------------------------------------------------------ */
 

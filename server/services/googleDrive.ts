@@ -1,12 +1,12 @@
-import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
-import { google, type Auth, type drive_v3 } from "googleapis";
+import { google, type Auth } from "googleapis";
 import { config } from "../config.js";
 import { HttpError } from "../errors.js";
 import { decrypt, encrypt } from "./crypto.js";
 import { escapeHtml, replaceEmbedsWithLinks } from "./driveHtml.js";
 import { DRIVE_FILE_SCOPE, hasDriveScope, MISSING_DRIVE_ACCESS_MESSAGE } from "./googleScopes.js";
 import type { DriveApi } from "./driveTree.js";
+import { createOAuthClient, issueState } from "./oauth.js";
 import * as googleRepo from "../repositories/googleRepository.js";
 import type { DocumentRecord, GoogleStatus } from "../../lib/shared/schemas.js";
 
@@ -14,19 +14,11 @@ import type { DocumentRecord, GoogleStatus } from "../../lib/shared/schemas.js";
  * `drive.file` only grants access to files this app creates — the least privilege
  * that still lets us create a folder and write documents into it.
  */
-const SCOPES = [
-  DRIVE_FILE_SCOPE,
-  "https://www.googleapis.com/auth/userinfo.email",
-  "openid",
-];
+const SCOPES = [DRIVE_FILE_SCOPE, "https://www.googleapis.com/auth/userinfo.email", "openid"];
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
-const STATE_TTL_MS = 10 * 60 * 1000;
 
-/** Pending OAuth `state` values (CSRF protection). Single process, so memory is enough. */
-const pendingStates = new Map<string, number>();
-
-function requireConfigured(): Buffer {
+function requireDriveConfigured(): Buffer {
   if (!config.google.configured || !config.encryptionKey) {
     throw new HttpError(
       400,
@@ -37,12 +29,8 @@ function requireConfigured(): Buffer {
   return config.encryptionKey;
 }
 
-function createOAuthClient(): Auth.OAuth2Client {
-  return new google.auth.OAuth2(config.google.clientId, config.google.clientSecret, config.google.redirectUri);
-}
-
-export async function getStatus(): Promise<GoogleStatus> {
-  const creds = config.google.configured ? await googleRepo.getCredentials() : null;
+export async function getStatus(userId: string): Promise<GoogleStatus> {
+  const creds = config.google.configured ? await googleRepo.getCredentials(userId) : null;
   return {
     configured: config.google.configured,
     connected: Boolean(creds?.refreshTokenEnc || creds?.accessTokenEnc),
@@ -52,31 +40,21 @@ export async function getStatus(): Promise<GoogleStatus> {
   };
 }
 
-export function createAuthUrl(): string {
-  requireConfigured();
-  const now = Date.now();
-  for (const [s, expires] of pendingStates) if (expires < now) pendingStates.delete(s);
-
-  const state = randomBytes(24).toString("base64url");
-  pendingStates.set(state, now + STATE_TTL_MS);
+/** Consent URL for connecting this user's Google Drive. */
+export function createAuthUrl(userId: string): string {
+  requireDriveConfigured();
   return createOAuthClient().generateAuthUrl({
     access_type: "offline",
     prompt: "consent", // guarantees a refresh token on every connection
     scope: SCOPES,
-    state,
+    state: issueState({ kind: "drive", userId }),
     include_granted_scopes: true,
   });
 }
 
-/** Exchanges the authorization code, stores encrypted tokens and the account email. */
-export async function handleCallback(code: string, state: string): Promise<void> {
-  const key = requireConfigured();
-  const expires = pendingStates.get(state);
-  pendingStates.delete(state);
-  if (!expires || expires < Date.now()) {
-    throw new HttpError(400, "invalid_oauth_state", "The Google sign-in link expired or is invalid. Please try again.");
-  }
-
+/** Second half of the Drive connection: exchange the code and store this user's encrypted tokens. */
+export async function completeDriveConnection(userId: string, code: string): Promise<void> {
+  const key = requireDriveConfigured();
   const client = createOAuthClient();
   const { tokens } = await client.getToken(code);
   if (!hasDriveScope(tokens.scope)) {
@@ -92,7 +70,7 @@ export async function handleCallback(code: string, state: string): Promise<void>
   client.setCredentials(tokens);
   const { data: user } = await google.oauth2({ version: "v2", auth: client }).userinfo.get();
 
-  await googleRepo.saveCredentials({
+  await googleRepo.saveCredentials(userId, {
     accessTokenEnc: tokens.access_token ? encrypt(tokens.access_token, key) : null,
     refreshTokenEnc: tokens.refresh_token ? encrypt(tokens.refresh_token, key) : null,
     expiryDate: tokens.expiry_date ?? null,
@@ -102,31 +80,26 @@ export async function handleCallback(code: string, state: string): Promise<void>
   });
 }
 
-/** Builds an OAuth client from stored credentials; refreshed tokens are persisted automatically. */
-async function getAuthorizedClient(): Promise<{ client: Auth.OAuth2Client; folderId: string | null }> {
-  const key = requireConfigured();
-  const creds = await googleRepo.getCredentials();
+/** Builds an OAuth client from the user's stored credentials; refreshed tokens are persisted. */
+async function getAuthorizedClient(userId: string): Promise<Auth.OAuth2Client> {
+  const key = requireDriveConfigured();
+  const creds = await googleRepo.getCredentials(userId);
   if (!creds || (!creds.accessTokenEnc && !creds.refreshTokenEnc)) {
     throw new HttpError(409, "google_not_connected", "Google Drive is not connected. Connect it in Settings.");
   }
   const client = createOAuthClient();
-  const credentials: Auth.Credentials = {
+  client.setCredentials({
     access_token: creds.accessTokenEnc ? decrypt(creds.accessTokenEnc, key) : null,
     refresh_token: creds.refreshTokenEnc ? decrypt(creds.refreshTokenEnc, key) : null,
     expiry_date: creds.expiryDate,
-  };
-  client.setCredentials(credentials);
+  });
   client.on("tokens", (t) => {
     if (!t.access_token) return;
     googleRepo
-      .updateTokens(
-        encrypt(t.access_token, key),
-        t.expiry_date ?? null,
-        t.refresh_token ? encrypt(t.refresh_token, key) : null,
-      )
+      .updateTokens(userId, encrypt(t.access_token, key), t.expiry_date ?? null, t.refresh_token ? encrypt(t.refresh_token, key) : null)
       .catch((err: unknown) => console.error("[google] failed to persist refreshed tokens:", err));
   });
-  return { client, folderId: creds.folderId };
+  return client;
 }
 
 /** Escapes a value for use inside a single-quoted Drive query string. */
@@ -144,8 +117,8 @@ export function toHtmlFile(doc: Pick<DocumentRecord, "title" | "contentHtml">, f
 }
 
 /** The `DriveApi` used by the folder-tree sync, backed by the real Google Drive API. */
-export async function createDriveApi(): Promise<DriveApi> {
-  const { client } = await getAuthorizedClient();
+export async function createDriveApi(userId: string): Promise<DriveApi> {
+  const client = await getAuthorizedClient(userId);
   const drive = google.drive({ version: "v3", auth: client });
   const html = (body: string) => ({ mimeType: "text/html", body: Readable.from([body]) });
 
@@ -225,15 +198,15 @@ export async function createDriveApi(): Promise<DriveApi> {
 }
 
 /** Whether Drive is configured, connected, and was granted Drive access. */
-export async function isConnectedWithDriveAccess(): Promise<boolean> {
-  const status = await getStatus();
+export async function isConnectedWithDriveAccess(userId: string): Promise<boolean> {
+  const status = await getStatus(userId);
   return status.configured && status.connected && status.driveAccess;
 }
 
-/** Revokes the token at Google (best effort) and deletes stored credentials. */
-export async function disconnect(): Promise<void> {
-  const key = requireConfigured();
-  const creds = await googleRepo.getCredentials();
+/** Revokes the user's token at Google (best effort) and deletes their stored credentials. */
+export async function disconnect(userId: string): Promise<void> {
+  const key = requireDriveConfigured();
+  const creds = await googleRepo.getCredentials(userId);
   const tokenEnc = creds?.refreshTokenEnc ?? creds?.accessTokenEnc;
   if (tokenEnc) {
     try {
@@ -244,5 +217,5 @@ export async function disconnect(): Promise<void> {
       console.warn("[google] token revocation failed:", err instanceof Error ? err.message : err);
     }
   }
-  await googleRepo.deleteCredentials();
+  await googleRepo.deleteCredentials(userId);
 }

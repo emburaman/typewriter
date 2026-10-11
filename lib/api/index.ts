@@ -1,4 +1,5 @@
 export { ApiError } from "./client";
+export * from "./auth";
 export * from "./settings";
 export * from "./documents";
 export * from "./folders";

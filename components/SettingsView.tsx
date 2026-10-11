@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
-import { disconnectGoogle, getFonts, getGoogleAuthUrl, getGoogleStatus, syncDriveNow, type FontCatalog } from "@/lib/api";
+import {
+  disconnectGoogle,
+  getFonts,
+  getGoogleAuthUrl,
+  getGoogleStatus,
+  inviteUser,
+  listUsers,
+  removeUser,
+  syncDriveNow,
+  type FontCatalog,
+} from "@/lib/api";
 import { useGoogleFont } from "@/lib/hooks/useGoogleFont";
 import {
   CURATED_FONTS,
@@ -12,12 +22,16 @@ import {
   MAX_TOOLBAR_COLORS,
   settingsSchema,
   type GoogleStatus,
+  type Role,
+  type UserSummary,
   type Settings,
   type SettingsUpdate,
 } from "@/lib/shared/schemas";
 import { Icon } from "./Icon";
 import { Logo } from "./Logo";
+import { useAuth } from "./AuthProvider";
 import { useSettings } from "./SettingsProvider";
+import { Avatar } from "./UserMenu";
 import { useSound } from "./SoundProvider";
 import { useToast } from "./ToastProvider";
 
@@ -25,6 +39,7 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 
 export function SettingsView() {
   const { settings, update, loaded } = useSettings();
+  const { user } = useAuth();
   const toast = useToast();
 
   const save = async (change: SettingsUpdate, okMessage = "Settings saved") => {
@@ -50,7 +65,9 @@ export function SettingsView() {
       {!loaded && <p className="muted">Loading settings…</p>}
       <AppearanceSection settings={settings} save={save} />
       <ColorsSection settings={settings} save={save} />
+      <AccountSection />
       <StorageSection settings={settings} save={save} />
+      {user?.role === "admin" && <UsersSection />}
       <ShortcutsSection />
     </div>
   );
@@ -442,6 +459,131 @@ function StorageSection({ settings, save }: { settings: Settings; save: SaveFn }
           </>
         )}
       </div>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+
+function AccountSection() {
+  const { user, signOut } = useAuth();
+  if (!user) return null;
+  return (
+    <section className="card" aria-labelledby="account-h">
+      <h2 id="account-h">Account</h2>
+      <div className="row">
+        <Avatar user={user} size={40} />
+        <div style={{ flex: 1 }}>
+          <strong>{user.name ?? user.email}</strong>
+          <div className="muted small">
+            {user.email} · {user.role === "admin" ? "Admin" : "Member"}
+          </div>
+        </div>
+        <button type="button" className="btn" onClick={() => void signOut()}>
+          Sign out
+        </button>
+      </div>
+      <p className="hint">
+        Your documents, folders, settings and Google Drive connection are yours alone. Other people on this server
+        can&apos;t see them.
+      </p>
+    </section>
+  );
+}
+
+function UsersSection() {
+  const toast = useToast();
+  const { user: me } = useAuth();
+  const [users, setUsers] = useState<UserSummary[] | null>(null);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<Role>("user");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () =>
+    listUsers()
+      .then(setUsers)
+      .catch((err: unknown) => toast(`Could not load users: ${errorMessage(err)}`, "error"));
+
+  useEffect(() => {
+    void refresh();
+    // Runs once on mount: `toast` is stable and refresh only reads module functions.
+  }, []);
+
+  const invite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const added = await inviteUser({ email, role });
+      toast(`Invited ${added.email}. They can now sign in with that Google account.`, "success");
+      setEmail("");
+      setRole("user");
+      await refresh();
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (u: UserSummary) => {
+    const what = u.status === "invited" ? `Cancel the invite for ${u.email}?` : `Remove ${u.email}?\n\nThis permanently deletes their documents, folders and settings on this server. Copies in their own Google Drive are not touched.`;
+    if (!window.confirm(what)) return;
+    try {
+      await removeUser(u.id);
+      toast(u.status === "invited" ? "Invite cancelled" : "User removed", "success");
+      await refresh();
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    }
+  };
+
+  return (
+    <section className="card" aria-labelledby="users-h">
+      <h2 id="users-h">Users</h2>
+      <p className="hint">
+        Only invited people can sign in. Each person signs in with the Google account for the email you add here, and
+        connects their own Google Drive.
+      </p>
+      {users === null ? (
+        <p className="muted small">Loading…</p>
+      ) : (
+        <ul className="user-list">
+          {users.map((u) => (
+            <li key={u.id}>
+              <Avatar user={u} size={28} />
+              <span className="who">
+                {u.name ?? u.email}
+                {u.name && <span className="muted small"> · {u.email}</span>}
+              </span>
+              {u.role === "admin" && <span className="badge">Admin</span>}
+              {u.status === "invited" && <span className="badge">Invited</span>}
+              {u.id !== me?.id && (
+                <button type="button" className="btn btn-small btn-danger" onClick={() => void remove(u)}>
+                  {u.status === "invited" ? "Cancel invite" : "Remove"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="row" onSubmit={(e) => void invite(e)}>
+        <input
+          className="input"
+          type="email"
+          required
+          placeholder="name@example.com"
+          aria-label="Email to invite"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <select className="input" style={{ flex: "0 0 auto" }} aria-label="Role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+          <option value="user">Member</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          Invite
+        </button>
+      </form>
     </section>
   );
 }
