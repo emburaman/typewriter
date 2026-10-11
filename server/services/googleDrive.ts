@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { HttpError } from "../errors.js";
 import { decrypt, encrypt } from "./crypto.js";
 import { escapeHtml, replaceEmbedsWithLinks } from "./driveHtml.js";
+import { DRIVE_FILE_SCOPE, hasDriveScope, isInsufficientScopeError, MISSING_DRIVE_ACCESS_MESSAGE } from "./googleScopes.js";
 import * as googleRepo from "../repositories/googleRepository.js";
 import type { DocumentRecord, GoogleStatus } from "../../lib/shared/schemas.js";
 
@@ -13,7 +14,7 @@ import type { DocumentRecord, GoogleStatus } from "../../lib/shared/schemas.js";
  * that still lets us create a folder and write documents into it.
  */
 const SCOPES = [
-  "https://www.googleapis.com/auth/drive.file",
+  DRIVE_FILE_SCOPE,
   "https://www.googleapis.com/auth/userinfo.email",
   "openid",
 ];
@@ -44,6 +45,7 @@ export async function getStatus(): Promise<GoogleStatus> {
   return {
     configured: config.google.configured,
     connected: Boolean(creds?.refreshTokenEnc || creds?.accessTokenEnc),
+    driveAccess: hasDriveScope(creds?.scope),
     accountEmail: creds?.accountEmail ?? null,
     folderId: creds?.folderId ?? null,
   };
@@ -76,6 +78,16 @@ export async function handleCallback(code: string, state: string): Promise<void>
 
   const client = createOAuthClient();
   const { tokens } = await client.getToken(code);
+  if (!hasDriveScope(tokens.scope)) {
+    // The person unticked the Drive permission: don't store a connection that can't upload.
+    const token = tokens.refresh_token ?? tokens.access_token;
+    if (token) {
+      await client.revokeToken(token).catch((err: unknown) => {
+        console.warn("[google] could not revoke partial grant:", err instanceof Error ? err.message : err);
+      });
+    }
+    throw new HttpError(400, "drive_scope_missing", MISSING_DRIVE_ACCESS_MESSAGE);
+  }
   client.setCredentials(tokens);
   const { data: user } = await google.oauth2({ version: "v2", auth: client }).userinfo.get();
 
@@ -164,6 +176,18 @@ function toHtmlFile(doc: Pick<DocumentRecord, "title" | "contentHtml">, fontFami
  * existing Drive file when the document was synced before; recreates it if it was deleted.
  */
 export async function uploadDocument(
+  doc: Pick<DocumentRecord, "title" | "contentHtml" | "driveFileId">,
+  opts: { folderName: string; fontFamily: string },
+): Promise<string> {
+  try {
+    return await uploadDocumentUnchecked(doc, opts);
+  } catch (err) {
+    if (isInsufficientScopeError(err)) throw new HttpError(403, "drive_scope_missing", MISSING_DRIVE_ACCESS_MESSAGE);
+    throw err;
+  }
+}
+
+async function uploadDocumentUnchecked(
   doc: Pick<DocumentRecord, "title" | "contentHtml" | "driveFileId">,
   opts: { folderName: string; fontFamily: string },
 ): Promise<string> {

@@ -360,7 +360,8 @@ function StorageSection({ settings, save }: { settings: Settings; save: SaveFn }
         {status?.configured && !connected && (
           <>
             <p className="hint">
-              Connect to save copies of your documents as Google Docs. The app can only access files it creates.
+              Connect to save copies of your documents as Google Docs. The app can only access files it creates. On
+              Google&apos;s screen, make sure the box for Google Drive access is <strong>ticked</strong>.
             </p>
             <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void connect()}>
               Connect Google Drive
@@ -372,6 +373,17 @@ function StorageSection({ settings, save }: { settings: Settings; save: SaveFn }
             <p>
               Connected as <strong>{status?.accountEmail ?? "unknown account"}</strong>
             </p>
+            {status && !status.driveAccess && (
+              <div className="warning-box" role="alert">
+                <p>
+                  Google Drive access wasn&apos;t granted, so documents can&apos;t be uploaded. Reconnect and tick the
+                  box that lets the app see and edit the Drive files it creates.
+                </p>
+                <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void connect()}>
+                  Reconnect Google Drive
+                </button>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="drive-folder">Drive folder</label>
               <div className="row">

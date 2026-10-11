@@ -176,6 +176,7 @@ deleted folder's parent**, so no writing is ever deleted.
 interface GoogleStatus {
   configured: boolean;      // server has GOOGLE_CLIENT_ID/SECRET + TOKEN_ENCRYPTION_KEY
   connected: boolean;
+  driveAccess: boolean;     // false if the Drive permission was unticked on Google's consent screen
   accountEmail: string | null;
   folderId: string | null;
 }
@@ -193,7 +194,9 @@ OAuth redirect target, called by Google rather than by API clients. It exchanges
 the tokens encrypted with AES-256-GCM, and redirects with **`303`** to one of:
 - `/settings?google=connected`
 - `/settings?google=denied&message=…` (the user declined)
-- `/settings?google=error&message=…` (invalid or expired state, or the token exchange failed)
+- `/settings?google=error&message=…` (invalid or expired state, the token exchange failed, or
+  the Drive permission was unticked on Google's consent screen; in that case the partial grant is
+  revoked and nothing is stored)
 
 ### `DELETE /api/google/connection`
 Revokes the token at Google (best effort) and deletes the stored credentials. → `204`

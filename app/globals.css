@@ -980,6 +980,17 @@ code {
   margin-bottom: 0.5rem;
 }
 
+.warning-box {
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+}
+.warning-box p {
+  margin: 0 0 0.6rem;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
 .shortcuts {
   width: 100%;
   border-collapse: collapse;
