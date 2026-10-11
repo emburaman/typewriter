@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { settingsUpdateSchema } from "../../lib/shared/schemas.js";
 import * as settingsRepo from "../repositories/settingsRepository.js";
-import * as drive from "../services/googleDrive.js";
+import * as driveSync from "../services/driveSync.js";
 
 export const settingsRouter = Router();
 
@@ -16,7 +16,8 @@ settingsRouter.put("/", async (req, res) => {
   const before = await settingsRepo.getSettings();
   const after = await settingsRepo.updateSettings(update);
   if (update.driveFolderName !== undefined && update.driveFolderName !== before.driveFolderName) {
-    await drive.resetFolder();
+    // Rename the existing Drive folder (failures are repaired by the next upload).
+    await driveSync.followUp(() => driveSync.syncRoot());
   }
   res.status(200).json(after);
 });

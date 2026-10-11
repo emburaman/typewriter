@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
-import { disconnectGoogle, getFonts, getGoogleAuthUrl, getGoogleStatus, type FontCatalog } from "@/lib/api";
+import { disconnectGoogle, getFonts, getGoogleAuthUrl, getGoogleStatus, syncDriveNow, type FontCatalog } from "@/lib/api";
 import { useGoogleFont } from "@/lib/hooks/useGoogleFont";
 import {
   CURATED_FONTS,
@@ -296,6 +296,23 @@ function StorageSection({ settings, save }: { settings: Settings; save: SaveFn }
     }
   };
 
+  const syncNow = async () => {
+    setBusy(true);
+    try {
+      const r = await syncDriveNow();
+      const summary = `Synced ${r.folders} folder${r.folders === 1 ? "" : "s"} and ${r.documents} document${r.documents === 1 ? "" : "s"} to Google Drive`;
+      if (r.failed.length) {
+        toast(`${summary}. ${r.failed.length} failed: ${r.failed.map((f) => `“${f.title}” (${f.message})`).join("; ")}`, "error");
+      } else {
+        toast(summary, "success");
+      }
+    } catch (err) {
+      toast(`Google Drive sync failed: ${errorMessage(err)}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const disconnect = async () => {
     if (!window.confirm("Disconnect Google Drive? Files already in Drive stay there.")) return;
     setBusy(true);
@@ -404,8 +421,21 @@ function StorageSection({ settings, save }: { settings: Settings; save: SaveFn }
                   Save
                 </button>
               </div>
-              <p className="hint">Created automatically on the next save if it does not exist.</p>
+              <p className="hint">
+                Your folders are mirrored inside it, and each document is saved as a Google Doc in its folder.
+              </p>
             </div>
+            {status?.driveAccess !== false && (
+              <div className="field">
+                <button type="button" className="btn" disabled={busy} onClick={() => void syncNow()}>
+                  <Icon name="cloud" size={16} /> Sync everything to Drive now
+                </button>
+                <p className="hint">
+                  Creates any missing folders, moves files to match your folders, and uploads every document. Useful
+                  after turning Drive on, or after changing things in Drive by hand.
+                </p>
+              </div>
+            )}
             <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void disconnect()}>
               Disconnect
             </button>

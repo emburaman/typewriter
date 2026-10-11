@@ -134,8 +134,11 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
 
   const run = async (action: () => Promise<unknown>, success?: string) => {
     try {
-      await action();
-      if (success) toast(success, "success");
+      const result = await action();
+      const warning =
+        typeof result === "object" && result !== null && "driveWarning" in result ? (result as { driveWarning?: string }).driveWarning : undefined;
+      if (warning) toast(warning, "error");
+      else if (success) toast(success, "success");
     } catch (err) {
       toast(errorMessage(err), "error");
     } finally {
@@ -148,6 +151,7 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
       const folder = await createFolder({ name: "New folder", parentId });
       if (parentId) toggle(parentId, true);
       setRenaming(folder.id);
+      return folder;
     });
 
   const rename = (folder: Folder, name: string) => {
@@ -159,9 +163,9 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
 
   const move = (item: DragItem, folderId: string | null) =>
     run(async () => {
-      if (item.type === "document") await moveDocument(item.id, folderId);
-      else await updateFolder(item.id, { parentId: folderId });
+      const result = item.type === "document" ? await moveDocument(item.id, folderId) : await updateFolder(item.id, { parentId: folderId });
       if (folderId) toggle(folderId, true);
+      return result;
     });
 
   const removeFolder = (folder: Folder) => {

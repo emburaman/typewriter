@@ -5,7 +5,8 @@ import { config } from "../config.js";
 import { HttpError } from "../errors.js";
 import { decrypt, encrypt } from "./crypto.js";
 import { escapeHtml, replaceEmbedsWithLinks } from "./driveHtml.js";
-import { DRIVE_FILE_SCOPE, hasDriveScope, isInsufficientScopeError, MISSING_DRIVE_ACCESS_MESSAGE } from "./googleScopes.js";
+import { DRIVE_FILE_SCOPE, hasDriveScope, MISSING_DRIVE_ACCESS_MESSAGE } from "./googleScopes.js";
+import type { DriveApi } from "./driveTree.js";
 import * as googleRepo from "../repositories/googleRepository.js";
 import type { DocumentRecord, GoogleStatus } from "../../lib/shared/schemas.js";
 
@@ -131,99 +132,102 @@ async function getAuthorizedClient(): Promise<{ client: Auth.OAuth2Client; folde
 /** Escapes a value for use inside a single-quoted Drive query string. */
 const escapeQuery = (v: string) => v.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
-async function ensureFolder(drive: drive_v3.Drive, folderId: string | null, folderName: string): Promise<string> {
-  if (folderId) {
-    try {
-      const { data } = await drive.files.get({ fileId: folderId, fields: "id, trashed" });
-      if (data.id && !data.trashed) return data.id;
-    } catch (err) {
-      if (!isNotFound(err)) throw err;
-      // Folder was deleted outside the app — fall through and recreate it.
-    }
-  }
-
-  const { data: found } = await drive.files.list({
-    q: `mimeType = '${FOLDER_MIME}' and name = '${escapeQuery(folderName)}' and trashed = false`,
-    fields: "files(id)",
-    spaces: "drive",
-    pageSize: 1,
-  });
-  let id = found.files?.[0]?.id ?? null;
-  if (!id) {
-    const { data: created } = await drive.files.create({
-      requestBody: { name: folderName, mimeType: FOLDER_MIME },
-      fields: "id",
-    });
-    id = created.id ?? null;
-  }
-  if (!id) throw new HttpError(502, "google_drive_error", "Google Drive did not return a folder id");
-  await googleRepo.setFolderId(id);
-  return id;
-}
-
 function isNotFound(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && Number((err as { code: unknown }).code) === 404;
 }
 
-function toHtmlFile(doc: Pick<DocumentRecord, "title" | "contentHtml">, fontFamily: string): string {
+/** Wraps an HTML body as a full document for Google Docs conversion. */
+export function toHtmlFile(doc: Pick<DocumentRecord, "title" | "contentHtml">, fontFamily: string): string {
   const title = escapeHtml(doc.title);
   return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
     `<body style="font-family: '${fontFamily}', monospace;">${replaceEmbedsWithLinks(doc.contentHtml)}</body></html>`;
 }
 
-/**
- * Uploads a document to Drive as a Google Doc (converted from HTML). Updates the
- * existing Drive file when the document was synced before; recreates it if it was deleted.
- */
-export async function uploadDocument(
-  doc: Pick<DocumentRecord, "title" | "contentHtml" | "driveFileId">,
-  opts: { folderName: string; fontFamily: string },
-): Promise<string> {
-  try {
-    return await uploadDocumentUnchecked(doc, opts);
-  } catch (err) {
-    if (isInsufficientScopeError(err)) throw new HttpError(403, "drive_scope_missing", MISSING_DRIVE_ACCESS_MESSAGE);
-    throw err;
-  }
-}
-
-async function uploadDocumentUnchecked(
-  doc: Pick<DocumentRecord, "title" | "contentHtml" | "driveFileId">,
-  opts: { folderName: string; fontFamily: string },
-): Promise<string> {
-  const { client, folderId: storedFolderId } = await getAuthorizedClient();
+/** The `DriveApi` used by the folder-tree sync, backed by the real Google Drive API. */
+export async function createDriveApi(): Promise<DriveApi> {
+  const { client } = await getAuthorizedClient();
   const drive = google.drive({ version: "v3", auth: client });
-  const folderId = await ensureFolder(drive, storedFolderId, opts.folderName);
-  const media = () => ({ mimeType: "text/html", body: Readable.from([toHtmlFile(doc, opts.fontFamily)]) });
-  const name = doc.title || "Untitled";
+  const html = (body: string) => ({ mimeType: "text/html", body: Readable.from([body]) });
 
-  if (doc.driveFileId) {
-    try {
-      const { data } = await drive.files.update({
-        fileId: doc.driveFileId,
-        requestBody: { name },
-        media: media(),
+  return {
+    async get(id) {
+      try {
+        const { data } = await drive.files.get({ fileId: id, fields: "id, name, parents, trashed" });
+        return data.id ? { id: data.id, name: data.name ?? "", parents: data.parents ?? [], trashed: Boolean(data.trashed) } : null;
+      } catch (err) {
+        if (isNotFound(err)) return null;
+        throw err;
+      }
+    },
+    async findRootFolder(name) {
+      const { data } = await drive.files.list({
+        q: `mimeType = '${FOLDER_MIME}' and name = '${escapeQuery(name)}' and 'root' in parents and trashed = false`,
+        fields: "files(id)",
+        spaces: "drive",
+        pageSize: 1,
+      });
+      return data.files?.[0]?.id ?? null;
+    },
+    async createFolder(name, parentId) {
+      const { data } = await drive.files.create({
+        requestBody: { name, mimeType: FOLDER_MIME, ...(parentId ? { parents: [parentId] } : {}) },
         fields: "id",
       });
-      if (data.id) return data.id;
-    } catch (err) {
-      if (!isNotFound(err)) throw err;
-      // The Drive copy was deleted by the user — create a fresh one below.
-    }
-  }
-
-  const { data } = await drive.files.create({
-    requestBody: { name, mimeType: GOOGLE_DOC_MIME, parents: [folderId] },
-    media: media(),
-    fields: "id",
-  });
-  if (!data.id) throw new HttpError(502, "google_drive_error", "Google Drive did not return a file id");
-  return data.id;
+      if (!data.id) throw new HttpError(502, "google_drive_error", "Google Drive did not return a folder id");
+      return data.id;
+    },
+    async update(id, change) {
+      await drive.files.update({
+        fileId: id,
+        requestBody: change.name ? { name: change.name } : {},
+        addParents: change.addParent,
+        removeParents: change.removeParents?.length ? change.removeParents.join(",") : undefined,
+        fields: "id",
+      });
+    },
+    async listChildren(folderId) {
+      const ids: string[] = [];
+      let pageToken: string | undefined;
+      do {
+        const { data } = await drive.files.list({
+          q: `'${escapeQuery(folderId)}' in parents and trashed = false`,
+          fields: "nextPageToken, files(id)",
+          pageSize: 1000,
+          pageToken,
+        });
+        for (const f of data.files ?? []) if (f.id) ids.push(f.id);
+        pageToken = data.nextPageToken ?? undefined;
+      } while (pageToken);
+      return ids;
+    },
+    async trash(id) {
+      await drive.files.update({ fileId: id, requestBody: { trashed: true }, fields: "id" });
+    },
+    async createDoc(name, parentId, body) {
+      const { data } = await drive.files.create({
+        requestBody: { name, mimeType: GOOGLE_DOC_MIME, parents: [parentId] },
+        media: html(body),
+        fields: "id",
+      });
+      if (!data.id) throw new HttpError(502, "google_drive_error", "Google Drive did not return a file id");
+      return data.id;
+    },
+    async updateDoc(id, name, body) {
+      try {
+        await drive.files.update({ fileId: id, requestBody: { name }, media: html(body), fields: "id" });
+        return true;
+      } catch (err) {
+        if (isNotFound(err)) return false;
+        throw err;
+      }
+    },
+  };
 }
 
-/** Forget the stored folder so the next upload resolves the (renamed) folder again. */
-export async function resetFolder(): Promise<void> {
-  if (config.google.configured) await googleRepo.setFolderId(null);
+/** Whether Drive is configured, connected, and was granted Drive access. */
+export async function isConnectedWithDriveAccess(): Promise<boolean> {
+  const status = await getStatus();
+  return status.configured && status.connected && status.driveAccess;
 }
 
 /** Revokes the token at Google (best effort) and deletes stored credentials. */

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import * as drive from "../services/googleDrive.js";
+import * as driveSync from "../services/driveSync.js";
 import { HttpError } from "../errors.js";
 
 export const googleRouter = Router();
@@ -42,6 +43,17 @@ googleRouter.get("/callback", async (req, res) => {
     console.error("[google] OAuth callback failed:", err);
     back("error", err instanceof HttpError ? err.message : "Could not complete Google sign-in");
   }
+});
+
+/**
+ * POST /api/google/sync — mirror every folder and upload every document to Drive now.
+ * Works whatever the storage setting is, as long as Drive is connected with Drive access.
+ */
+googleRouter.post("/sync", async (_req, res) => {
+  if (!(await drive.isConnectedWithDriveAccess())) {
+    throw new HttpError(409, "google_not_connected", "Connect Google Drive (with Drive access) in Settings first.");
+  }
+  res.status(200).json(await driveSync.syncEverything());
 });
 
 /** DELETE /api/google/connection — disconnect Drive. */

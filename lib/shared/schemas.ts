@@ -151,6 +151,18 @@ export interface Folder {
   updatedAt: string;
 }
 
+/**
+ * Folder / move responses: the database change succeeded; `driveWarning` is set when
+ * mirroring it to Google Drive failed (it will be repaired by the next sync).
+ */
+export type WithDriveWarning<T> = T & { driveWarning?: string };
+
+export interface DriveSyncAllResult {
+  folders: number;
+  documents: number;
+  failed: { title: string; message: string }[];
+}
+
 /* ------------------------------------------------------------------ */
 /* Google Drive                                                        */
 /* ------------------------------------------------------------------ */

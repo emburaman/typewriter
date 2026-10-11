@@ -5,7 +5,7 @@
 | Suite | Command | Covers |
 |---|---|---|
 | Types | `npm run typecheck` | Strict TS for UI and server |
-| Unit (Vitest) | `npm test` | Footnote sync in a real TipTap editor (jsdom) · embed safety (pasted iframes and `javascript:` dropped, iframe src always rebuilt) · YouTube/Vimeo URL parsing · link normalization · media type detection · Drive export of embeds · file-tree helpers (sorting, descendants, drop rules, cycle-safe ancestors) · Key → sound mapping, sound cookie parsing and serialization · Settings/document validation (5-color cap, hex colors, safe font names, UUID ids), AES-GCM token encryption (round trip, tamper, wrong key), API error → status mapping (no leaked internals), word count, UUID fallback for HTTP contexts |
+| Unit (Vitest) | `npm test` | Drive folder mirroring against an in-memory Drive (nesting, renames, moves, deletes to trash, repair after manual changes, root rename, cycle safety) · Footnote sync in a real TipTap editor (jsdom) · embed safety (pasted iframes and `javascript:` dropped, iframe src always rebuilt) · YouTube/Vimeo URL parsing · link normalization · media type detection · Drive export of embeds · file-tree helpers (sorting, descendants, drop rules, cycle-safe ancestors) · Key → sound mapping, sound cookie parsing and serialization · Settings/document validation (5-color cap, hex colors, safe font names, UUID ids), AES-GCM token encryption (round trip, tamper, wrong key), API error → status mapping (no leaked internals), word count, UUID fallback for HTTP contexts |
 | E2E (Playwright) | `npm run test:e2e` (app running) | Markdown shortcuts (headings, quote, rule, code, code block, `[text](url)`) · heading picker and Ctrl+Alt+n · link dialog (Ctrl+K, unsafe URLs rejected) · footnotes (numbering, two-way links, renumbering, removal) · media dialog (YouTube, image with alt text, audio with a manual type) · Files panel (create and rename folders, new document saved into a folder, drag and drop of documents and folders, refused cyclic drop, Move to…, deleting a folder moves its contents up) · Typewriter sound plays on keystrokes, stays silent for shortcuts and navigation keys, toggle persists in the `ow_sound` cookie · Olive Writer branding · Ctrl+B/I/U · `1. ` / `- ` lists · Tab nests right after the marker, Shift+Tab un-nests · Tab elsewhere inserts `\t` · Ctrl+1…5 / Ctrl+0 colors with clean HTML · 5 s browser autosave and restore after reload · Ctrl+S saves (verified via API) · unload prompt when unsaved · theme toggle persists · settings palette cap and persistence |
 
 ## Manual checklist
@@ -82,6 +82,13 @@
 - [ ] Rename the folder in Settings, then save → the new folder is used
 - [ ] Revoke access in your Google account, then save → the server save succeeds and a Drive error toast appears
 - [ ] Disconnect → storage switches back to "Server only"
+- [ ] Settings → "Sync everything to Drive now" → Drive shows `Olive Writer / <your folders> / <documents>`
+- [ ] Create, rename and move a folder in the Files panel → the same happens in Drive
+- [ ] Move a document between folders → its Google Doc moves in Drive
+- [ ] Delete a folder → its Drive contents move up and the empty Drive folder is in Drive's trash
+- [ ] Rename the Drive folder in Settings → the existing Drive folder is renamed (no second root folder)
+- [ ] Delete or rename a sub-folder by hand in Drive, then save a document in it → the folder is recreated or renamed back
+- [ ] With Drive failing (e.g. revoke access in your Google account), moving and creating folders still works in the app and shows a "Google Drive wasn't updated" notice
 - [ ] A tampered `state` in the callback URL → redirected with an error and not connected
 
 **API** (see docs/API.md): status codes 200/201/204/400/404/409/502 as documented; malformed JSON → 400.

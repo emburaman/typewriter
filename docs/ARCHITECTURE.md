@@ -108,6 +108,13 @@ The chosen family is loaded with a `fonts.googleapis.com/css2` `<link>`.
   our own nodes: `footnoteReference` / `footnotes` / `footnote` (a plugin keeps the numbering, note
   order and anchors consistent after every change), `videoEmbed` (stores only provider + id, with
   the iframe src rebuilt on render) and `mediaFile` (http(s) audio/video only).
+* **Drive folder mirroring** (`server/services/driveTree.ts`): each app folder caches its Drive
+  folder id (`folders.drive_folder_id`, migration 004). Every operation re-checks the Drive side
+  (exists, not trashed, right name, right parent) and repairs it, so failed or partial syncs and
+  edits made by hand in Drive heal themselves. The engine talks to Drive through a small
+  `DriveApi` interface and is unit-tested against an in-memory fake. Drive work runs one
+  operation at a time (`driveSync.ts`), so concurrent saves can't create duplicate folders, and
+  it always runs after the database change, which it never rolls back.
 * **A document's folder is set on create only** (`PUT` with `folderId`); moves are a separate
   `PATCH`. That way a save from an open editor can never undo a move made in the Files panel.
 * **Typewriter sound is synthesized, not sampled**: Web Audio noise bursts, oscillators and a bell

@@ -6,6 +6,7 @@ interface FolderRow extends RowDataPacket {
   id: string;
   name: string;
   parent_id: string | null;
+  drive_folder_id: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -95,4 +96,22 @@ export async function deleteFolder(id: string): Promise<boolean> {
   } finally {
     conn.release();
   }
+}
+
+/** Folder fields needed to mirror it in Google Drive. */
+export interface FolderDriveRow {
+  id: string;
+  name: string;
+  parentId: string | null;
+  driveFolderId: string | null;
+}
+
+export async function findFolderForDrive(id: string): Promise<FolderDriveRow | null> {
+  const [rows] = await getPool().execute<FolderRow[]>("SELECT * FROM folders WHERE id = ?", [id]);
+  const row = rows[0];
+  return row ? { id: row.id, name: row.name, parentId: row.parent_id, driveFolderId: row.drive_folder_id } : null;
+}
+
+export async function setDriveFolderId(id: string, driveFolderId: string | null): Promise<void> {
+  await getPool().execute("UPDATE folders SET drive_folder_id = ?, updated_at = updated_at WHERE id = ?", [driveFolderId, id]);
 }

@@ -1,4 +1,10 @@
-import type { DocumentRecord, DocumentSaveResult, DocumentSummary, DocumentWrite } from "@/lib/shared/schemas";
+import type {
+  DocumentRecord,
+  DocumentSaveResult,
+  DocumentSummary,
+  DocumentWrite,
+  WithDriveWarning,
+} from "@/lib/shared/schemas";
 
 import { request } from "./client";
 
@@ -13,4 +19,4 @@ export const syncDocumentToDrive = (id: string) =>
   request<DocumentSaveResult>("POST", `/documents/${encodeURIComponent(id)}/drive-sync`);
 /** Moves a document to a folder (`null` = top level). */
 export const moveDocument = (id: string, folderId: string | null) =>
-  request<DocumentRecord>("PATCH", `/documents/${encodeURIComponent(id)}`, { folderId });
+  request<WithDriveWarning<DocumentRecord>>("PATCH", `/documents/${encodeURIComponent(id)}`, { folderId });

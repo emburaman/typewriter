@@ -122,8 +122,9 @@ If `storageProvider` is `google_drive`, the document is also uploaded to Drive. 
 **doesn't** fail the request: the MySQL save is kept and `drive.status` is `"failed"` with a message.
 
 ### `PATCH /api/documents/{id}`
-Moves a document. Body: `{"folderId": "<folder uuid>" | null}` (`null` = top level).
-→ `200 DocumentRecord` · `400` (validation error, or the folder doesn't exist) · `404`
+Moves a document. Body: `{"folderId": "<folder uuid>" | null}` (`null` = top level). With Drive
+mirroring, its Google Doc moves to the matching Drive folder.
+→ `200 DocumentRecord & { driveWarning? }` · `400` (validation error, or the folder doesn't exist) · `404`
 
 ### `POST /api/documents/{id}/drive-sync`
 Uploads the stored document to Drive now, whatever `storageProvider` is set to.
@@ -153,20 +154,28 @@ interface Folder {
 ### `GET /api/folders` → `200 Folder[]`
 A flat list sorted by name. Clients build the tree from `parentId`.
 
+### Google Drive mirroring
+
+When storage is `google_drive` and Drive is connected, folder and move operations are also
+applied in Drive, **after** the database change. A Drive failure never fails the request: the
+response includes `driveWarning: string` (Google's reason), and the next save or
+`POST /api/google/sync` repairs Drive.
+
 ### `POST /api/folders`
 Body: `{"name": "Novel", "parentId": null}` (`parentId` is optional).
-→ `201 Folder` with a `Location` header · `400` (validation error, or the parent doesn't exist)
+→ `201 Folder & { driveWarning? }` with a `Location` header · `400` (validation error, or the parent doesn't exist)
 
 ### `PATCH /api/folders/{id}`
 Renames and/or moves a folder. Body: `{"name"?: string, "parentId"?: string | null}`. At least one
 field is required, and unknown keys are rejected.
-→ `200 Folder` · `400` (validation error, the parent doesn't exist, or the move would put the
-folder inside itself or one of its sub-folders) · `404`
+→ `200 Folder & { driveWarning? }` · `400` (validation error, the parent doesn't exist, or the
+move would put the folder inside itself or one of its sub-folders) · `404`
 
 ### `DELETE /api/folders/{id}`
 Deletes the folder. In the same transaction, its sub-folders and documents **move up to the
-deleted folder's parent**, so no writing is ever deleted.
-→ `204` · `404`
+deleted folder's parent**, so no writing is ever deleted. With Drive mirroring, the Drive folder's
+contents move up too, and the empty Drive folder goes to Drive's trash.
+→ `204` · `200 { "driveWarning": "…" }` (deleted, but Drive couldn't be updated) · `404`
 
 ---
 
@@ -197,6 +206,13 @@ the tokens encrypted with AES-256-GCM, and redirects with **`303`** to one of:
 - `/settings?google=error&message=…` (invalid or expired state, the token exchange failed, or
   the Drive permission was unticked on Google's consent screen; in that case the partial grant is
   revoked and nothing is stored)
+
+### `POST /api/google/sync`
+Mirrors every folder and uploads every document to Drive now, whatever the storage setting.
+Documents are uploaded one at a time, and a failure on one doesn't stop the others.
+→ `200 {"folders": n, "documents": n, "failed": [{"title": "…", "message": "…"}]}` ·
+`409` (not connected, or Drive access not granted) · `403 drive_scope_missing` ·
+`502 google_drive_error` (with Google's message)
 
 ### `DELETE /api/google/connection`
 Revokes the token at Google (best effort) and deletes the stored credentials. → `204`

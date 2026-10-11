@@ -30,7 +30,7 @@ server (MySQL) and, if you want, to Google Drive.
 | **Keyboard-first** | `Ctrl+B/I/U`, `Ctrl+1…5` for colors, `Ctrl+0` for the default color, `1. ` and `- ` start lists, `Tab` right after the bullet/number nests the item, `Ctrl+S` saves. |
 | **Fonts** | Any Google Fonts family, with a live preview. You get a curated list by default, or the full catalog if you set a Google Fonts API key. |
 | **Autosave** | Saves to browser storage every 5 s. If the browser has a newer unsaved draft than the server, it's restored on load. Closing the tab with changes not yet saved to the server triggers the browser's "Leave site?" prompt. |
-| **Storage** | MySQL on the server, plus optional **Google Drive** sync: each save also uploads the document to a Drive folder as a Google Doc. |
+| **Storage** | MySQL on the server, plus optional **Google Drive** sync: each save also uploads the document as a Google Doc, and your folders are mirrored as Drive folders (created, renamed, moved and deleted along with the app). |
 | **Markdown formatting** | Headings H1–H6, quotes, horizontal lines, inline code and code blocks, external links, footnotes with two-way in-document links, images / audio / video from a URL, and embedded YouTube and Vimeo videos. Markdown typing shortcuts work (`# `, `> `, `---`, `` `code` ``, ```` ``` ````, `[text](url)`, `![alt](url)`). |
 | **Files and folders** | The Files panel shows saved documents in a tree of folders. Create, rename and delete folders, and move documents and folders by drag and drop or with "Move to…". Deleting a folder never deletes writing: its contents move up a level. |
 
@@ -153,11 +153,13 @@ Values already set in the environment, for example by Compose, take precedence o
    TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)   # paste the generated value
    ```
 
-6. Restart the app. In **Settings → Storage**, click **Connect Google Drive** and grant access,
-   then choose **Server + Google Drive**.
+6. Restart the app. In **Settings → Storage**, click **Connect Google Drive**. On Google's
+   permission screen, **tick the Google Drive box** (or "Select all"), then choose
+   **Server + Google Drive**.
+7. Click **Sync everything to Drive now** to copy the folders and documents you already have.
 
-From then on, every save (`Ctrl+S`) also uploads the document to the chosen Drive folder as a
-Google Doc (created automatically, `Olive Writer` by default). The app requests the
+From then on, every save (`Ctrl+S`) also uploads the document as a Google Doc into the Drive
+folder (`Olive Writer` by default), and your app folders are mirrored as Drive folders inside it. The app requests the
 `drive.file` scope, so it **can only see files it created**, not the rest of your Drive. If the
 Drive upload fails, the server save still succeeds and the app shows a notice.
 

@@ -11,7 +11,7 @@ import { badRequest, notFound } from "../errors.js";
 import * as documentsRepo from "../repositories/documentsRepository.js";
 import * as foldersRepo from "../repositories/foldersRepository.js";
 import * as settingsRepo from "../repositories/settingsRepository.js";
-import * as drive from "../services/googleDrive.js";
+import * as driveSync from "../services/driveSync.js";
 
 export const documentsRouter = Router();
 
@@ -34,11 +34,7 @@ async function syncToDriveIfEnabled(doc: DocumentRecord, force = false): Promise
     return { document: doc, drive: { status: "skipped" } };
   }
   try {
-    const fileId = await drive.uploadDocument(doc, {
-      folderName: settings.driveFolderName,
-      fontFamily: settings.fontFamily,
-    });
-    await documentsRepo.markDriveSynced(doc.id, fileId);
+    await driveSync.uploadDocument(doc);
     return { document: await requireDocument(doc.id), drive: { status: "synced" } };
   } catch (err) {
     console.error(`[documents] Drive sync failed for ${doc.id}:`, err);
@@ -87,7 +83,9 @@ documentsRouter.patch("/:id", async (req, res) => {
   const { folderId } = documentMoveSchema.parse(req.body);
   await requireFolder(folderId);
   if (!(await documentsRepo.moveDocument(id, folderId))) throw notFound(`Document ${id} not found`);
-  res.status(200).json(await requireDocument(id));
+  const doc = await requireDocument(id);
+  const driveWarning = await driveSync.followUp(() => driveSync.syncDocumentLocation(doc));
+  res.status(200).json({ ...doc, driveWarning });
 });
 
 /** POST /api/documents/:id/drive-sync — upload to Drive now, regardless of storage provider. */

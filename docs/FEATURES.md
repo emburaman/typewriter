@@ -51,14 +51,34 @@
 
 - **Server only** (default): `Ctrl+S` saves to MySQL.
 - **Server + Google Drive**: each save also uploads the document to Google Drive as a
-  **Google Doc**, converted from the editor's HTML, in the `Olive Writer` folder by default. Later saves update the same Drive file. If you
+  **Google Doc**, converted from the editor's HTML. Later saves update the same Drive file. If you
   delete it in Drive, the next save creates a new one.
-- Connect and disconnect from Settings. You can rename the Drive folder there too; it's created
-  on the next save if it doesn't exist.
+- **Folders are mirrored.** Everything lives under one Drive folder (`Olive Writer` by default),
+  and your app folders become real Drive folders inside it:
+
+  ```
+  My Drive / Olive Writer / Novel / Chapters / Chapter One   (Google Doc)
+  ```
+
+  With Drive storage on, Drive follows what you do in the Files panel right away:
+  - creating, renaming or moving a folder does the same in Drive;
+  - moving a document moves its Google Doc;
+  - deleting a folder moves its Drive contents up a level, the same as in the app, and puts the
+    emptied Drive folder in Drive's **trash**, so it can be recovered;
+  - renaming the Drive folder in Settings renames the existing folder in Drive.
+- **Self-repairing**: every save re-checks the document's folder path in Drive. Folders deleted
+  or renamed by hand in Drive are recreated or renamed back, and files are moved back where they
+  belong. The app is the source of truth.
+- **Sync everything to Drive now** (Settings → Storage) creates any missing folders, puts files in
+  the right place and uploads every document. Use it after turning Drive storage on, so writing
+  saved before then gets copied, or after changing things in Drive by hand.
+- Deleting a *document* in the app leaves its Drive copy alone.
+- Connect and disconnect from Settings.
 - Security: OAuth tokens are encrypted with AES-256-GCM in MySQL and never sent to the browser.
   The scope is `drive.file`, so the app can only see files it created. The OAuth flow is protected
   by a one-time `state` value.
-- If a Drive upload fails, the server save still succeeds and a notice explains what went wrong.
+- If a Drive step fails (an upload, or mirroring a folder change), the change in the app still
+  succeeds and a notice gives Google's reason. The next save or "Sync everything" catches Drive up.
 
 See the README for the Google Cloud setup.
 
@@ -156,8 +176,7 @@ Open it with the files icon in the header.
   are expanded automatically.
 - Browser-only drafts (never saved to the server) are listed separately at the top. They can't
   be moved until they are saved.
-- Google Drive copies stay in the single Drive folder from Settings. Folders are not mirrored to
-  Drive yet.
+- With Google Drive storage on, folder changes are mirrored in Drive (see section 2).
 
 ## 4. Auto-save and leave protection
 
