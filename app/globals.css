@@ -1146,3 +1146,28 @@ code {
 .menu-link:hover {
   background: var(--surface-2);
 }
+.conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+  justify-content: flex-end;
+}
+.conflict-options {
+  padding-left: 1.2rem;
+}
+.conflict-options li {
+  margin-bottom: 0.35rem;
+}
+.status-conflict {
+  color: var(--danger);
+}
+.status-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

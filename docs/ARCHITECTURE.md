@@ -118,6 +118,14 @@ The chosen family is loaded with a `fonts.googleapis.com/css2` `<link>`.
   filters on it. Client-generated document ids can't be used to overwrite another user's row
   (the upsert checks the owner inside a transaction). The first admin is created under a MySQL
   named lock (`GET_LOCK`), so concurrent first sign-ins can't create two admins.
+* **Cross-device editing**: the server is the shared copy. The editor auto-saves to it after
+  typing pauses, at least every 20 s, and backs off to one retry every 10 s while offline.
+  `documents.revision` (migration 006) is optimistic concurrency: a save names its
+  `baseRevision`, and the repository compares and writes it inside one row-locked transaction, so
+  two devices can never silently overwrite each other (409 + the current version → keep both /
+  use theirs / overwrite). Open documents re-check the server when the tab regains focus, and
+  every 30 s while idle. Background saves use `driveSync: "auto"`, which uploads to Drive at most
+  every 2 minutes.
 * **Drive folder mirroring** (`server/services/driveTree.ts`): each app folder caches its Drive
   folder id (`folders.drive_folder_id`, migration 004). Every operation re-checks the Drive side
   (exists, not trashed, right name, right parent) and repairs it, so failed or partial syncs and

@@ -125,6 +125,7 @@ interface DocumentSummary {
   driveSyncedAt: string | null;
 }
 interface DocumentRecord extends DocumentSummary {
+  revision: number;            // +1 on every save; used to detect edits from another device
   contentJson: { type: "doc", content?: unknown[] };   // TipTap / ProseMirror JSON
   contentHtml: string;                                   // rendered HTML (sent to Drive)
   createdAt: string;
@@ -135,6 +136,9 @@ interface DocumentWrite {      // request body for POST / PUT
   contentJson: { type: "doc", ... };
   contentHtml: string;         // ≤4,000,000 chars
   wordCount?: number;          // default 0
+  baseRevision?: number | null; // revision this edit is based on (null = new); omit to skip the check
+  driveSync?: "now" | "auto" | "skip"; // when to upload to Drive (default "now"; "auto" = only if
+                                       // the Drive copy is > 2 min old — used by background autosave)
 }
 interface DocumentSaveResult {
   document: DocumentRecord;
@@ -155,7 +159,13 @@ Creates a document with a server-generated id.
 ### `PUT /api/documents/{id}`
 **Create or replace.** The editor generates document ids itself, so a draft that exists only in
 the browser keeps the same id when it's first saved.
-→ `201 DocumentSaveResult` (created) · `200 DocumentSaveResult` (updated) · `400`
+→ `201 DocumentSaveResult` (created) · `200 DocumentSaveResult` (updated) · `400` · `409` (conflict, see below)
+
+**Conflicts:** with `baseRevision`, the save only succeeds if the document is still at that
+revision; the check and the write are atomic. Otherwise nothing is written and the response is
+`409 {"error": {"code": "conflict", "details": {"document": <current DocumentRecord>}}}`, so
+the client can offer keep-both / use-theirs / overwrite. To overwrite on purpose, resend with
+`baseRevision` set to the current revision.
 
 `folderId` is applied only when this request creates the document (a new draft saved inside a
 folder). Later saves never move it, so a save from an open editor can't undo a move made in the

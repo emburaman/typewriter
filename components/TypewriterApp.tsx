@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, getDocument, saveDocument } from "@/lib/api";
+import { ApiError, getDocument, listDocuments, saveDocument } from "@/lib/api";
 import {
   EMPTY_DOC,
   getCurrentDocId,
@@ -16,6 +16,7 @@ import { countParagraphs, countVisualLines } from "@/lib/editor/stats";
 import { AUTOSAVE_INTERVAL_MS, type DocumentRecord, type EditorJson } from "@/lib/shared/schemas";
 import { soundForKey } from "@/lib/sound/keySounds";
 import { newUuid } from "@/lib/uuid";
+import { ConflictDialog } from "./ConflictDialog";
 import { LinkDialog, MediaDialog } from "./EditorDialogs";
 import { FilesPanel } from "./FilesPanel";
 import { Icon } from "./Icon";
@@ -29,6 +30,18 @@ import { Toolbar } from "./Toolbar";
 import { useToast } from "./ToastProvider";
 
 const timeOf = (t: number | string) => new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+/** Server autosave: this long after typing pauses… */
+const SERVER_AUTOSAVE_IDLE_MS = 3_000;
+/** …but at least this often while typing continues. */
+const SERVER_AUTOSAVE_MAX_WAIT_MS = 20_000;
+/** How often an open, idle document checks for changes saved on another device. */
+const REMOTE_CHECK_INTERVAL_MS = 30_000;
+/** While the server is unreachable (or erroring), retry this often instead of per keystroke. */
+const SAVE_RETRY_MS = 10_000;
+
+type SaveMode = "manual" | "auto";
+type SaveOutcome = "saved" | "conflict" | "failed";
+
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -61,6 +74,9 @@ export function TypewriterApp() {
   const [serverSavedAt, setServerSavedAt] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [typing, setTyping] = useState(false);
+  /** Set when another device saved this document while it had unsaved edits here. */
+  const [conflict, setConflict] = useState<{ server: DocumentRecord; dialogOpen: boolean } | null>(null);
+  const [offline, setOfflineState] = useState(false);
 
   /**
    * Change tracking with revision counters instead of content comparison:
@@ -74,15 +90,58 @@ export function TypewriterApp() {
   const folderIdRef = useRef<string | null>(null);
   const titleRef = useRef("");
   const savingRef = useRef(false);
+  /** Server revision our content is based on (null = not on the server yet). */
+  const baseRevisionRef = useRef<number | null>(null);
+  /** A save requested while another was running ("manual" wins over "auto"). */
+  const pendingSaveRef = useRef<SaveMode | null>(null);
+  const conflictRef = useRef(false);
+  const autosaveTimer = useRef<number | undefined>(undefined);
+  const firstDirtyAt = useRef<number | null>(null);
+  const driveWarned = useRef(false);
+  const saveErrorWarned = useRef(false);
+  /** Mirrors `offline` for callbacks (and makes autosave back off while the server is unreachable). */
+  const offlineRef = useRef(false);
   const statsTimer = useRef<number | undefined>(undefined);
   const storageWarned = useRef(false);
 
   const isServerDirty = () => revision.current !== serverRevision.current;
 
+  /**
+   * Server autosave: a few seconds after typing pauses, but at least every 20 s while typing
+   * continues. Paused while a conflict with another device is unresolved.
+   */
+  const scheduleServerSave = useCallback(() => {
+    if (conflictRef.current) return;
+    if (offlineRef.current) {
+      // Back off: one retry every SAVE_RETRY_MS, not one per keystroke.
+      if (autosaveTimer.current === undefined) {
+        autosaveTimer.current = window.setTimeout(() => {
+          autosaveTimer.current = undefined;
+          void saveRef.current("auto");
+        }, SAVE_RETRY_MS);
+      }
+      return;
+    }
+    const now = Date.now();
+    firstDirtyAt.current ??= now;
+    const delay = Math.min(SERVER_AUTOSAVE_IDLE_MS, Math.max(0, SERVER_AUTOSAVE_MAX_WAIT_MS - (now - firstDirtyAt.current)));
+    window.clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = window.setTimeout(() => {
+      autosaveTimer.current = undefined;
+      void saveRef.current("auto");
+    }, delay);
+  }, []);
+
+  const setOffline = useCallback((value: boolean) => {
+    offlineRef.current = value;
+    setOfflineState(value);
+  }, []);
+
   const markChanged = useCallback(() => {
     revision.current += 1;
     setServerDirty(true);
-  }, []);
+    scheduleServerSave();
+  }, [scheduleServerSave]);
 
   const computeStats = useCallback((ed: Editor) => {
     setStats({
@@ -128,6 +187,7 @@ export function TypewriterApp() {
       savedAt: now,
       unsynced: isServerDirty(),
       folderId: folderIdRef.current,
+      baseRevision: baseRevisionRef.current,
     });
     if (ok) {
       localRevision.current = revision.current;
@@ -138,79 +198,181 @@ export function TypewriterApp() {
     }
   }, [editor, toast]);
 
-  /** Saves to the server (and Google Drive when enabled). Resolves to true on success. */
-  const save = useCallback(async (): Promise<boolean> => {
-    const id = docIdRef.current;
-    if (!editor || !id || savingRef.current) return false;
-    savingRef.current = true;
-    setSaving(true);
-    const rev = revision.current;
-    try {
-      const result = await saveDocument(id, {
-        title: titleRef.current.trim() || "Untitled",
-        folderId: folderIdRef.current,
-        contentJson: editor.getJSON() as EditorJson,
-        contentHtml: editor.getHTML(),
-        wordCount: countWords(editor.getText()),
-      });
-      if (docIdRef.current !== id) return true; // user switched documents mid-save
-      serverRevision.current = rev;
-      const clean = revision.current === rev;
-      setServerDirty(!clean);
-      setServerSavedAt(result.document.updatedAt);
-      // Keep a synced copy locally as a recovery point.
-      localRevision.current = -1;
+  /** Shows another device's version in the editor (discarding unsaved edits here). */
+  const applyServerVersion = useCallback(
+    (doc: DocumentRecord) => {
+      if (!editor) return;
+      const { from } = editor.state.selection;
+      editor.commands.setContent(toEditorContent(doc.contentJson), { emitUpdate: false });
+      // Keep the cursor roughly where it was.
+      const max = Math.max(1, editor.state.doc.content.size - 1);
+      editor.commands.setTextSelection(Math.min(from, max));
+      const docTitle = doc.title === "Untitled" ? "" : doc.title;
+      titleRef.current = docTitle;
+      setTitle(docTitle);
+      baseRevisionRef.current = doc.revision;
+      revision.current = 0;
+      serverRevision.current = 0;
+      localRevision.current = -1; // refresh the browser copy too
+      firstDirtyAt.current = null;
+      window.clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = undefined;
+      setServerDirty(false);
+      setServerSavedAt(doc.updatedAt);
+      computeStats(editor);
       flushLocal();
+    },
+    [editor, computeStats, flushLocal],
+  );
 
-      if (result.drive.status === "failed") {
-        toast(`Saved to server, but Google Drive sync failed: ${result.drive.message ?? "unknown error"}`, "error");
-      } else if (result.drive.status === "synced") {
-        toast("Saved to server and Google Drive", "success");
+  const openConflict = useCallback((server: DocumentRecord) => {
+    conflictRef.current = true;
+    window.clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = undefined;
+    setConflict({ server, dialogOpen: true });
+  }, []);
+
+  const closeConflict = useCallback(() => {
+    conflictRef.current = false;
+    setConflict(null);
+  }, []);
+
+  /**
+   * Saves to the server. "manual" (Ctrl+S) also uploads to Google Drive right away and reports
+   * problems loudly; "auto" (background) refreshes Drive at most every couple of minutes and
+   * stays quiet when offline (the browser copy is kept and the next autosave retries).
+   */
+  const save = useCallback(
+    async (mode: SaveMode): Promise<SaveOutcome> => {
+      const id = docIdRef.current;
+      if (!editor || !id) return "failed";
+      if (conflictRef.current) {
+        if (mode === "manual") setConflict((c) => (c ? { ...c, dialogOpen: true } : c));
+        return "conflict";
       }
-      return true;
-    } catch (err) {
-      flushLocal();
-      const reason = err instanceof ApiError && err.isNetworkError ? "server unreachable" : errorMessage(err);
-      toast(`Could not save to server (${reason}). Your draft is kept in this browser.`, "error");
-      return false;
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
-  }, [editor, flushLocal, toast]);
+      if (savingRef.current) {
+        pendingSaveRef.current = pendingSaveRef.current === "manual" || mode === "manual" ? "manual" : "auto";
+        return "failed";
+      }
+      if (mode === "auto" && !isServerDirty()) return "saved";
+      window.clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = undefined;
+      savingRef.current = true;
+      setSaving(true);
+      const rev = revision.current;
+      let outcome: SaveOutcome = "failed";
+      try {
+        const result = await saveDocument(id, {
+          title: titleRef.current.trim() || "Untitled",
+          folderId: folderIdRef.current,
+          contentJson: editor.getJSON() as EditorJson,
+          contentHtml: editor.getHTML(),
+          wordCount: countWords(editor.getText()),
+          baseRevision: baseRevisionRef.current,
+          driveSync: mode === "manual" ? "now" : "auto",
+        });
+        outcome = "saved";
+        if (docIdRef.current !== id) return outcome; // user switched documents mid-save
+        baseRevisionRef.current = result.document.revision;
+        serverRevision.current = rev;
+        const clean = revision.current === rev;
+        if (clean) firstDirtyAt.current = null;
+        setServerDirty(!clean);
+        setServerSavedAt(result.document.updatedAt);
+        setOffline(false);
+        saveErrorWarned.current = false;
+        // Keep a synced copy locally as a recovery point.
+        localRevision.current = -1;
+        flushLocal();
+
+        if (result.drive.status === "failed" && (mode === "manual" || !driveWarned.current)) {
+          driveWarned.current = true;
+          toast(`Saved to server, but Google Drive sync failed: ${result.drive.message ?? "unknown error"}`, "error");
+        } else if (result.drive.status === "synced" && mode === "manual") {
+          toast("Saved to server and Google Drive", "success");
+        }
+        return outcome;
+      } catch (err) {
+        flushLocal();
+        if (err instanceof ApiError && err.status === 409 && err.code === "conflict") {
+          const server = (err.details as { document?: DocumentRecord } | undefined)?.document;
+          if (server && docIdRef.current === id) openConflict(server);
+          outcome = "conflict";
+        } else if (err instanceof ApiError && err.isNetworkError) {
+          setOffline(true);
+          if (mode === "manual") toast("Server unreachable. Your writing is kept in this browser and will be saved when it's back.", "error");
+        } else if (mode === "manual" || !saveErrorWarned.current) {
+          saveErrorWarned.current = true;
+          setOffline(true); // retry with back-off
+          toast(`Could not save to server (${errorMessage(err)}). Your draft is kept in this browser.`, "error");
+        } else {
+          setOffline(true);
+        }
+        return outcome;
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
+        const pending = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+        if (pending && outcome !== "conflict") void saveRef.current(pending);
+        else if (outcome === "failed" && isServerDirty()) scheduleServerSave(); // retry later
+      }
+    },
+    [editor, flushLocal, toast, openConflict, scheduleServerSave, setOffline],
+  );
 
   const saveRef = useRef(save);
   saveRef.current = save;
 
-  /** Loads a document: the server copy, or a newer unsynced browser draft if one exists. */
+  /**
+   * Loads a document: the server copy, or this browser's unsaved draft when it continues from
+   * the server's current revision. A draft based on an older revision (another device saved
+   * meanwhile) opens the conflict dialog.
+   */
   const loadDocument = useCallback(
     async (id: string, isNew: boolean, newFolderId: string | null = null) => {
       if (!editor) return;
       setLoading(true);
-      editor.setEditable(false);
+      editor.setEditable(false, false); // false: not a content change (no update event)
+      closeConflict();
+      window.clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = undefined;
+      firstDirtyAt.current = null;
+      driveWarned.current = false;
 
       let server: DocumentRecord | null = null;
-      let offline = false;
+      let unreachable = false;
       if (!isNew) {
         try {
           server = await getDocument(id);
         } catch (err) {
           if (err instanceof ApiError && err.status === 404) server = null;
-          else if (err instanceof ApiError && err.isNetworkError) offline = true;
+          else if (err instanceof ApiError && err.isNetworkError) unreachable = true;
           else toast(`Could not load document: ${errorMessage(err)}`, "error");
         }
       }
 
       const draft = readDraft(id);
-      const draftIsNewer = Boolean(draft?.unsynced && (!server || draft.savedAt > Date.parse(server.updatedAt)));
+      const unsyncedDraft = draft?.unsynced ? draft : null;
+      // Drafts written before revisions existed: fall back to comparing timestamps.
+      const draftContinuesServer =
+        unsyncedDraft !== null &&
+        (!server ||
+          (unsyncedDraft.baseRevision !== undefined
+            ? unsyncedDraft.baseRevision === server.revision
+            : unsyncedDraft.savedAt > Date.parse(server.updatedAt)));
+      const draftConflicts = Boolean(server && unsyncedDraft && !draftContinuesServer && unsyncedDraft.baseRevision !== undefined);
+
       let content: EditorJson = EMPTY_DOC;
       let docTitle = "";
       let dirty = false;
+      let base: number | null = server?.revision ?? null;
 
-      if (draft && draftIsNewer) {
-        content = draft.contentJson;
-        docTitle = draft.title;
+      if (unsyncedDraft && (draftContinuesServer || draftConflicts)) {
+        content = unsyncedDraft.contentJson;
+        docTitle = unsyncedDraft.title;
         dirty = true;
+        if (unsyncedDraft.baseRevision !== undefined) base = unsyncedDraft.baseRevision;
       } else if (server) {
         content = server.contentJson;
         docTitle = server.title === "Untitled" ? "" : server.title;
@@ -218,12 +380,14 @@ export function TypewriterApp() {
         content = draft.contentJson;
         docTitle = draft.title;
         dirty = draft.unsynced;
+        base = draft.baseRevision ?? null;
       }
 
       editor.commands.setContent(toEditorContent(content), { emitUpdate: false });
       docIdRef.current = id;
       folderIdRef.current = server?.folderId ?? draft?.folderId ?? newFolderId;
       titleRef.current = docTitle;
+      baseRevisionRef.current = base;
       revision.current = 0;
       localRevision.current = 0;
       serverRevision.current = dirty ? -1 : 0;
@@ -232,31 +396,132 @@ export function TypewriterApp() {
       setCurrentDocId(id);
       setTitle(docTitle);
       setServerDirty(dirty);
+      setOffline(unreachable);
       setServerSavedAt(server?.updatedAt ?? null);
       setLocalSavedAt(draft?.savedAt ?? null);
       computeStats(editor);
       setLoading(false);
-      editor.setEditable(true);
+      editor.setEditable(true, false);
       editor.commands.focus("end");
 
-      if (offline) {
-        toast("Server unreachable — working from the browser draft. Autosave continues locally.", "error");
-      } else if (draft && draftIsNewer && server) {
-        toast("Restored newer unsaved changes from this browser.", "info", {
-          label: "Save to server",
-          onClick: () => void saveRef.current(),
-        });
+      if (draftConflicts && server) {
+        openConflict(server);
+      } else if (unreachable) {
+        toast("Server unreachable — working from the browser draft. It will be saved when the server is back.", "error");
+      } else if (dirty && server) {
+        toast("Restored unsaved changes from this browser.", "info");
+        scheduleServerSave();
+      } else if (dirty) {
+        scheduleServerSave();
       }
     },
-    [editor, toast, computeStats],
+    [editor, toast, computeStats, closeConflict, openConflict, scheduleServerSave, setOffline],
   );
+
+  /**
+   * Picks up changes saved on another device: when this tab becomes visible again, and every
+   * 30 s while it's open. Unchanged here → the new version is shown; changed in both places
+   * → conflict dialog.
+   */
+  const checkForRemoteChanges = useCallback(async () => {
+    const id = docIdRef.current;
+    if (!editor || !id || loading || savingRef.current || conflictRef.current || document.visibilityState !== "visible") return;
+    const base = baseRevisionRef.current;
+    if (base === null) return; // not on the server yet
+    let server: DocumentRecord;
+    try {
+      server = await getDocument(id);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404 && docIdRef.current === id) {
+        baseRevisionRef.current = null;
+        toast("This document was deleted on another device. Keep writing to save it again, or open another one.", "info");
+      } else if (err instanceof ApiError && err.isNetworkError) {
+        setOffline(true);
+      }
+      return;
+    }
+    if (offlineRef.current) {
+      setOffline(false);
+      if (isServerDirty() && server.revision === base) {
+        void saveRef.current("auto"); // back online: push what was written meanwhile
+        return;
+      }
+    }
+    if (docIdRef.current !== id || savingRef.current || server.revision <= base) return;
+    if (isServerDirty()) {
+      openConflict(server);
+    } else {
+      applyServerVersion(server);
+      toast("Updated with changes from another device.", "info");
+    }
+  }, [editor, loading, toast, openConflict, applyServerVersion, setOffline]);
+
+  /* ------------------------- conflict choices ------------------------- */
+
+  const keepBoth = useCallback(async () => {
+    if (!editor || !conflict) return;
+    const copyTitle = `${titleRef.current.trim() || "Untitled"} (conflict copy)`;
+    try {
+      await saveDocument(newUuid(), {
+        title: copyTitle,
+        folderId: folderIdRef.current,
+        contentJson: editor.getJSON() as EditorJson,
+        contentHtml: editor.getHTML(),
+        wordCount: countWords(editor.getText()),
+        baseRevision: null,
+        driveSync: "auto",
+      });
+    } catch (err) {
+      toast(`Couldn't save your copy (${errorMessage(err)}). Nothing was changed.`, "error");
+      return;
+    }
+    closeConflict();
+    applyServerVersion(conflict.server);
+    toast(`Your version was saved as “${copyTitle}” (see Files).`, "success");
+  }, [editor, conflict, toast, closeConflict, applyServerVersion]);
+
+  const chooseTheirs = useCallback(() => {
+    if (!conflict) return;
+    closeConflict();
+    applyServerVersion(conflict.server);
+  }, [conflict, closeConflict, applyServerVersion]);
+
+  const overwriteWithMine = useCallback(() => {
+    if (!conflict) return;
+    baseRevisionRef.current = conflict.server.revision;
+    closeConflict();
+    void saveRef.current("manual");
+  }, [conflict, closeConflict]);
 
   // Initial load once the editor exists.
   useEffect(() => {
     if (!editor || docIdRef.current) return;
     const existing = getCurrentDocId();
-    void loadDocument(existing ?? newUuid(), !existing);
+    if (existing) {
+      void loadDocument(existing, false);
+      return;
+    }
+    // First visit on this device: continue with the most recently edited document.
+    listDocuments()
+      .then((docs) => {
+        const latest = [...docs].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+        return loadDocument(latest?.id ?? newUuid(), !latest);
+      })
+      .catch(() => loadDocument(newUuid(), true));
   }, [editor, loadDocument]);
+
+  // Changes from other devices: check when the tab comes back, and every 30 s while visible.
+  useEffect(() => {
+    const onVisible = () => document.visibilityState === "visible" && void checkForRemoteChanges();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const timer = window.setInterval(() => void checkForRemoteChanges(), REMOTE_CHECK_INTERVAL_MS);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [checkForRemoteChanges]);
 
   // Line counts depend on layout: recount when the page width, font or font size changes.
   useEffect(() => {
@@ -296,7 +561,7 @@ export function TypewriterApp() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        void saveRef.current();
+        void saveRef.current("manual");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -315,12 +580,8 @@ export function TypewriterApp() {
     async (id: string | null, newFolderId: string | null = null) => {
       setDrawerOpen(false);
       if (id !== null && id === docIdRef.current) return;
-      if (isServerDirty()) {
-        const wantsSave = window.confirm(
-          "Save your changes to the server before switching?\n\nOK — save now\nCancel — keep them as a browser draft",
-        );
-        if (wantsSave && !(await save())) return;
-      }
+      // Save first. Offline is fine (the browser draft is kept); a conflict must be resolved first.
+      if (isServerDirty() && (await save("auto")) === "conflict") return;
       flushLocal();
       await loadDocument(id ?? newUuid(), id === null, newFolderId);
     },
@@ -335,8 +596,11 @@ export function TypewriterApp() {
 
   let status: string;
   if (loading) status = "Loading…";
+  else if (conflict) status = "Changed on another device";
   else if (saving) status = "Saving…";
-  else if (serverDirty) status = localSavedAt ? `Unsaved · browser draft ${timeOf(localSavedAt)}` : "Unsaved changes";
+  else if (offline && serverDirty)
+    status = localSavedAt ? `Offline · saved in this browser ${timeOf(localSavedAt)}` : "Offline · not saved yet";
+  else if (serverDirty) status = localSavedAt ? `Editing · browser draft ${timeOf(localSavedAt)}` : "Editing…";
   else if (serverSavedAt) status = `Saved ${timeOf(serverSavedAt)}`;
   else status = "New document";
 
@@ -359,7 +623,7 @@ export function TypewriterApp() {
             title="Save to server (Ctrl+S)"
             aria-label="Save to server"
             disabled={saving || loading}
-            onClick={() => void save()}
+            onClick={() => void save("manual")}
           >
             <Icon name="save" />
           </button>
@@ -413,8 +677,13 @@ export function TypewriterApp() {
       </main>
 
       <footer className="chrome statusbar" aria-live="polite">
-        <span className={serverDirty ? "status-dirty" : undefined}>
+        <span className={conflict ? "status-conflict" : serverDirty ? "status-dirty" : undefined}>
           {settings.storageProvider === "google_drive" && <Icon name="cloud" size={12} />} {status}
+          {conflict && !conflict.dialogOpen && (
+            <button type="button" className="status-link" onClick={() => setConflict({ ...conflict, dialogOpen: true })}>
+              Resolve
+            </button>
+          )}
         </span>
         <span>
           {plural(stats.paragraphs, "paragraph")} · <span title="Lines as wrapped on screen">{plural(stats.lines, "line")}</span> ·{" "}
@@ -429,6 +698,16 @@ export function TypewriterApp() {
           onClose={() => setDrawerOpen(false)}
           onOpenDocument={(id) => void switchTo(id)}
           onNewDocument={(folderId) => void switchTo(null, folderId)}
+        />
+      )}
+      {conflict && (
+        <ConflictDialog
+          open={conflict.dialogOpen}
+          server={conflict.server}
+          onKeepBoth={() => void keepBoth()}
+          onUseTheirs={chooseTheirs}
+          onOverwrite={overwriteWithMine}
+          onLater={() => setConflict((c) => (c ? { ...c, dialogOpen: false } : c))}
         />
       )}
       {editor && (

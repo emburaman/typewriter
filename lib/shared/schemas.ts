@@ -97,6 +97,17 @@ export const documentWriteSchema = z.object({
   contentJson: editorJsonSchema,
   contentHtml: z.string().max(MAX_HTML_LENGTH),
   wordCount: z.number().int().min(0).default(0),
+  /**
+   * The revision this edit was based on (from the last load/save). If the document has moved on
+   * since — another device saved it — the save is refused with 409 instead of overwriting.
+   * `null` = "I believe this is a new document". Omit to skip the check (simple API clients).
+   */
+  baseRevision: z.number().int().min(0).nullable().optional(),
+  /**
+   * When to upload to Google Drive (if Drive storage is on): `now` (Ctrl+S, the default),
+   * `auto` (background autosave: only if the Drive copy is a couple of minutes old), `skip`.
+   */
+  driveSync: z.enum(["now", "auto", "skip"]).default("now"),
 });
 export type DocumentWrite = z.input<typeof documentWriteSchema>;
 
@@ -115,6 +126,8 @@ export interface DocumentSummary {
 }
 
 export interface DocumentRecord extends DocumentSummary {
+  /** Incremented by every save; used to detect edits from another device. */
+  revision: number;
   contentJson: EditorJson;
   contentHtml: string;
   createdAt: string;

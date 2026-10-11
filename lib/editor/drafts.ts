@@ -20,6 +20,8 @@ export interface LocalDraft {
   unsynced: boolean;
   /** Folder chosen when a new document was created there (applied on its first server save). */
   folderId?: string | null;
+  /** Server revision the draft's edits are based on (null = never saved). Absent in old drafts. */
+  baseRevision?: number | null;
 }
 
 function storage(): Storage | null {
@@ -41,6 +43,7 @@ function isDraft(value: unknown): value is LocalDraft {
     typeof d.savedAt === "number" &&
     typeof d.unsynced === "boolean" &&
     (d.folderId === undefined || d.folderId === null || typeof d.folderId === "string") &&
+    (d.baseRevision === undefined || d.baseRevision === null || typeof d.baseRevision === "number") &&
     typeof d.contentJson === "object" &&
     d.contentJson !== null &&
     (d.contentJson as { type?: unknown }).type === "doc"

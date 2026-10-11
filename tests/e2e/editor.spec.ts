@@ -2,9 +2,14 @@ import { expect, test, type Page } from "@playwright/test";
 
 const DEFAULT_COLORS = ["#d64541", "#2e86de", "#27ae60", "#e67e22", "#9b59b6"];
 
+/** Opens the app on a brand-new document (the app itself reopens the most recent one). */
 async function openEditor(page: Page) {
   await page.goto("/");
   await expect(page.locator(".editor-content")).toHaveAttribute("contenteditable", "true");
+  await page.getByRole("button", { name: "New document" }).click();
+  await expect(page.locator(".statusbar")).toContainText("New document");
+  await expect(page.locator(".editor-content")).toHaveAttribute("contenteditable", "true");
+  await page.locator(".editor-content").click();
 }
 
 const editorHtml = (page: Page) => page.locator(".editor-content").innerHTML();
@@ -80,19 +85,23 @@ test("Ctrl+1…5 apply palette colors, pressing again or Ctrl+0 resets", async (
   expect(html).not.toContain("<span>");
 });
 
-test("autosaves to the browser every 5 seconds and restores after reload", async ({ page }) => {
+test("autosaves to the browser and to the server without Ctrl+S, and restores after reload", async ({ page, request }) => {
   await openEditor(page);
   await page.keyboard.type("draft text");
-  await expect(page.locator(".statusbar")).toContainText("browser draft", { timeout: 7_000 });
-  const draft = await page.evaluate(() => {
+  // Server autosave a few seconds after typing pauses.
+  await expect(page.locator(".statusbar")).toContainText(/Saved \d/, { timeout: 10_000 });
+  const { id, draft } = await page.evaluate(() => {
     // Browser storage is per user: typewriter:<userId>:…
     const user = localStorage.getItem("typewriter:last-user");
     const id = localStorage.getItem(`typewriter:${user}:current`);
-    return JSON.parse(localStorage.getItem(`typewriter:${user}:draft:${id}`) ?? "null") as { unsynced: boolean } | null;
+    const draft = JSON.parse(localStorage.getItem(`typewriter:${user}:draft:${id}`) ?? "null") as { unsynced: boolean } | null;
+    return { id, draft };
   });
-  expect(draft?.unsynced).toBe(true);
+  expect(draft).not.toBeNull(); // browser copy kept as a recovery point
+  const res = await request.get(`/api/documents/${id}`);
+  expect(res.status()).toBe(200);
+  expect((await res.json()).contentHtml).toContain("draft text");
 
-  page.on("dialog", (d) => void d.accept());
   await page.reload();
   await expect(page.locator(".editor-content")).toContainText("draft text");
 });

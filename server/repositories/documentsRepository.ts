@@ -9,6 +9,7 @@ interface DocumentRow extends RowDataPacket {
   content_json: unknown;
   content_html: string;
   word_count: number;
+  revision: number;
   drive_file_id: string | null;
   drive_synced_at: Date | null;
   created_at: Date;
@@ -33,6 +34,7 @@ function rowToRecord(row: DocumentRow): DocumentRecord {
   return {
     ...rowToSummary(row),
     contentJson: row.content_json as EditorJson,
+    revision: row.revision,
     contentHtml: row.content_html,
     createdAt: row.created_at.toISOString(),
   };
@@ -60,7 +62,16 @@ export interface DocumentFields {
   contentJson: EditorJson;
   contentHtml: string;
   wordCount: number;
+  /** See documentWriteSchema.baseRevision: undefined = no check, null = expected to be new. */
+  baseRevision?: number | null;
 }
+
+export type UpsertResult =
+  | { status: "created" | "updated" }
+  /** The id belongs to another user (reported as not found, never overwritten). */
+  | { status: "taken" }
+  /** Another device saved since `baseRevision`; nothing was written. */
+  | { status: "conflict" };
 
 /**
  * Inserts or updates one of the user's documents. Ids are client-generated UUIDs so a draft
@@ -71,20 +82,29 @@ export async function upsertDocument(
   userId: string,
   id: string,
   fields: DocumentFields,
-): Promise<{ created: boolean; taken: boolean }> {
+): Promise<UpsertResult> {
   const conn = await getPool().getConnection();
   try {
     await conn.beginTransaction();
-    const [existing] = await conn.execute<RowDataPacket[]>("SELECT user_id FROM documents WHERE id = ? FOR UPDATE", [id]);
-    const owner = existing[0]?.user_id as string | null | undefined;
+    const [existing] = await conn.execute<RowDataPacket[]>("SELECT user_id, revision FROM documents WHERE id = ? FOR UPDATE", [
+      id,
+    ]);
+    const row = existing[0];
     const json = JSON.stringify(fields.contentJson);
-    if (existing.length > 0 && owner !== userId) {
+    if (row && row.user_id !== userId) {
       await conn.rollback();
-      return { created: false, taken: true };
+      return { status: "taken" };
     }
-    if (existing.length > 0) {
+    // Optimistic concurrency: the row is locked, so this check and the write are atomic.
+    const base = fields.baseRevision;
+    if (base !== undefined && (row ? base !== Number(row.revision) : base !== null)) {
+      await conn.rollback();
+      return { status: "conflict" };
+    }
+    if (row) {
       await conn.execute(
-        `UPDATE documents SET title = ?, content_json = ?, content_html = ?, word_count = ?, updated_at = CURRENT_TIMESTAMP
+        `UPDATE documents SET title = ?, content_json = ?, content_html = ?, word_count = ?,
+                revision = revision + 1, updated_at = CURRENT_TIMESTAMP
           WHERE id = ? AND user_id = ?`,
         [fields.title, json, fields.contentHtml, fields.wordCount, id, userId],
       );
@@ -96,7 +116,7 @@ export async function upsertDocument(
       );
     }
     await conn.commit();
-    return { created: existing.length === 0, taken: false };
+    return { status: row ? "updated" : "created" };
   } catch (err) {
     await conn.rollback();
     throw err;

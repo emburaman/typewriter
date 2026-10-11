@@ -7,7 +7,7 @@ import {
   type DocumentRecord,
   type DocumentSaveResult,
 } from "../../lib/shared/schemas.js";
-import { badRequest, notFound } from "../errors.js";
+import { badRequest, HttpError, notFound } from "../errors.js";
 import * as documentsRepo from "../repositories/documentsRepository.js";
 import * as foldersRepo from "../repositories/foldersRepository.js";
 import * as settingsRepo from "../repositories/settingsRepository.js";
@@ -29,11 +29,23 @@ async function requireFolder(userId: string, folderId: string | null | undefined
   if (folderId && !(await foldersRepo.findFolder(userId, folderId))) throw badRequest(`Folder ${folderId} does not exist`);
 }
 
-/** Uploads to Drive when the storage provider says so. Drive failures never lose the server save. */
-async function syncToDriveIfEnabled(userId: string, doc: DocumentRecord, force = false): Promise<DocumentSaveResult> {
+/** Background autosaves refresh the Drive copy at most this often (Ctrl+S always uploads). */
+const AUTO_DRIVE_INTERVAL_MS = 2 * 60 * 1000;
+
+type DriveMode = "now" | "auto" | "skip" | "force";
+
+/**
+ * Uploads to Drive when the storage provider says so (`force`: regardless). `auto` only uploads
+ * when the Drive copy is missing or older than AUTO_DRIVE_INTERVAL_MS, so typing doesn't turn
+ * into a stream of Drive uploads. Drive failures never lose the server save.
+ */
+async function syncToDriveIfEnabled(userId: string, doc: DocumentRecord, mode: DriveMode = "now"): Promise<DocumentSaveResult> {
   const settings = await settingsRepo.getSettings(userId);
-  if (!force && settings.storageProvider !== "google_drive") {
-    return { document: doc, drive: { status: "skipped" } };
+  const skipped: DocumentSaveResult = { document: doc, drive: { status: "skipped" } };
+  if (mode === "skip") return skipped;
+  if (mode !== "force" && settings.storageProvider !== "google_drive") return skipped;
+  if (mode === "auto" && doc.driveSyncedAt && Date.now() - Date.parse(doc.driveSyncedAt) < AUTO_DRIVE_INTERVAL_MS) {
+    return skipped;
   }
   try {
     await driveSync.uploadDocument(userId, doc);
@@ -71,16 +83,23 @@ documentsRouter.get("/:id", async (req, res) => {
  * Ids are client-generated so a browser-only draft keeps its identity once saved.
  * `folderId` is only applied when the document is created; use PATCH to move it later.
  * An id that belongs to another user is reported as not found (and never overwritten).
+ * With `baseRevision`, a save based on an outdated revision is refused: 409 `conflict`, with
+ * the current server version in `error.details.document`.
  */
 documentsRouter.put("/:id", async (req, res) => {
   const user = currentUser(req);
   const id = parseId(req);
   const body = documentWriteSchema.parse(req.body);
   await requireFolder(user.id, body.folderId);
-  const { created, taken } = await documentsRepo.upsertDocument(user.id, id, body);
-  if (taken) throw notFound(`Document ${id} not found`);
-  const result = await syncToDriveIfEnabled(user.id, await requireDocument(user.id, id));
-  res.status(created ? 201 : 200).json(result);
+  const outcome = await documentsRepo.upsertDocument(user.id, id, body);
+  if (outcome.status === "taken") throw notFound(`Document ${id} not found`);
+  if (outcome.status === "conflict") {
+    // Another device saved first. Send its version so the client can let the person choose.
+    const current = await documentsRepo.findDocument(user.id, id);
+    throw new HttpError(409, "conflict", "This document was changed on another device.", { document: current });
+  }
+  const result = await syncToDriveIfEnabled(user.id, await requireDocument(user.id, id), body.driveSync);
+  res.status(outcome.status === "created" ? 201 : 200).json(result);
 });
 
 /** PATCH /api/documents/:id — move to another folder (`folderId: null` = top level). */
@@ -99,7 +118,7 @@ documentsRouter.patch("/:id", async (req, res) => {
 documentsRouter.post("/:id/drive-sync", async (req, res) => {
   const user = currentUser(req);
   const doc = await requireDocument(user.id, parseId(req));
-  const result = await syncToDriveIfEnabled(user.id, doc, true);
+  const result = await syncToDriveIfEnabled(user.id, doc, "force");
   res.status(result.drive.status === "synced" ? 200 : 502).json(result);
 });
 

@@ -192,16 +192,38 @@ Open it with the files icon in the header.
   be moved until they are saved.
 - With Google Drive storage on, folder changes are mirrored in Drive (see section 2).
 
-## 4. Auto-save and leave protection
+## 4. Saving, and working across devices
 
-- **Every 5 seconds**, if anything changed, the document (title and content) is written to the
-  browser's `localStorage`. Drafts are also written immediately when the tab is hidden or closed.
-- `Ctrl+S` (or the save icon) saves to the **server**, and to Drive if that's enabled.
-- **Closing or reloading** the tab when the server copy is behind triggers the browser's "Leave
-  site? Changes you made may not be saved" dialog. Browsers show their own fixed wording here.
-- **Recovery**: when a document opens, the app compares the browser draft with the server copy.
-  If the draft is newer, the app restores it and offers **Save to server**.
-- If the server can't be reached, writing continues and the browser draft keeps being saved.
-- **Switching documents** with unsaved changes asks whether to save first. Either answer is safe:
-  if you don't save, the changes stay in the browser draft, and the drawer lists it under
-  "Browser drafts".
+- **Auto-save to the server.** A few seconds after you pause typing, and at least every 20 seconds
+  while you keep typing, the document is saved to the server, with no `Ctrl+S` needed. The status
+  bar shows *Editing…*, then *Saving…*, then *Saved hh:mm*.
+- **Browser copy.** Every 5 seconds, and whenever the tab is hidden or closed, the document is
+  also kept in this browser's storage, so nothing is lost while offline.
+- **Google Drive**: background auto-saves refresh the Drive copy at most every 2 minutes, so typing
+  doesn't trigger a stream of uploads. `Ctrl+S` (or the save icon) saves to the server **and**
+  uploads to Drive right away.
+- **Offline**: if the server can't be reached, writing continues and the status bar shows
+  *Offline · saved in this browser*. The app retries every 10 seconds and saves as soon as the
+  server is back.
+- **Other devices**: sign in with the same Google account anywhere.
+  - A device you haven't used before opens your **most recently edited** document. Everything
+    else is in **Files**.
+  - A document open on another device **updates itself** when you switch back to that device,
+    and every 30 seconds while it's open and untouched there. A notice says "Updated with changes
+    from another device".
+- **Edited on two devices at once?** Every save carries the document's revision number. If
+  another device saved in between, nothing is overwritten. A dialog asks what to do:
+  - **Keep both**: your version is saved as "<title> (conflict copy)", and this document shows
+    the other device's version;
+  - **Use the other version**: discard your changes here;
+  - **Overwrite with mine**: replace the other device's changes with yours.
+
+  Closing the dialog keeps your text on screen. Auto-save pauses until you choose, and the status
+  bar has a *Resolve* link.
+- **Closing or reloading** the tab with changes the server doesn't have yet triggers the browser's
+  "Leave site?" dialog. Browsers show their own fixed wording here.
+- **Recovery**: when a document opens, unsaved changes kept in this browser are restored if
+  they continue from the server's version. If the document was changed elsewhere since, the
+  conflict dialog lets you choose.
+- **Switching documents** saves the current one first, in the background. If you're offline it
+  stays in this browser's drafts, listed in Files under "Browser drafts".
