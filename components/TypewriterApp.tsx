@@ -20,6 +20,7 @@ import { newUuid } from "@/lib/uuid";
 import { ConflictDialog } from "./ConflictDialog";
 import { LinkDialog, MediaDialog } from "./EditorDialogs";
 import { FilesPanel } from "./FilesPanel";
+import { HeaderMenu } from "./HeaderMenu";
 import { Icon } from "./Icon";
 import { Logo } from "./Logo";
 import { useSettings } from "./SettingsProvider";
@@ -39,6 +40,10 @@ const SERVER_AUTOSAVE_MAX_WAIT_MS = 20_000;
 const REMOTE_CHECK_INTERVAL_MS = 30_000;
 /** While the server is unreachable (or erroring), retry this often instead of per keystroke. */
 const SAVE_RETRY_MS = 10_000;
+/** The formatting toolbar hides this long after the page loads or the last scroll that revealed it. */
+const TOOLBAR_HIDE_MS = 5_000;
+/** A touch has to travel this far vertically to count as a swipe. */
+const SWIPE_MIN_PX = 12;
 
 /** manual = Ctrl+S; auto = background; convert = re-encode content pulled from Google Docs. */
 type SaveMode = "manual" | "auto" | "convert";
@@ -603,6 +608,68 @@ export function TypewriterApp() {
     return () => window.removeEventListener("mousemove", wake);
   }, [typing]);
 
+  // The formatting toolbar: shown on load, hidden after a few seconds or as soon as typing
+  // starts, and brought back by scrolling (mouse wheel or a vertical swipe) or by pointing at
+  // the top of the screen. It never hides while it's hovered or holds focus.
+  const headRef = useRef<HTMLDivElement>(null);
+  const toolbarHideTimer = useRef<number | undefined>(undefined);
+  const [toolbarShown, setToolbarShown] = useState(true);
+  const scheduleToolbarHide = useCallback(() => {
+    window.clearTimeout(toolbarHideTimer.current);
+    toolbarHideTimer.current = window.setTimeout(function hide() {
+      if (headRef.current?.matches(":hover, :focus-within")) {
+        toolbarHideTimer.current = window.setTimeout(hide, TOOLBAR_HIDE_MS);
+        return;
+      }
+      setToolbarShown(false);
+    }, TOOLBAR_HIDE_MS);
+  }, []);
+  const revealToolbar = useCallback(() => {
+    setToolbarShown(true);
+    scheduleToolbarHide();
+  }, [scheduleToolbarHide]);
+
+  useEffect(() => {
+    scheduleToolbarHide();
+    return () => window.clearTimeout(toolbarHideTimer.current);
+  }, [scheduleToolbarHide]);
+
+  const hideToolbar = useCallback(() => {
+    window.clearTimeout(toolbarHideTimer.current);
+    setToolbarShown(false);
+  }, []);
+
+  useEffect(() => {
+    let touchY: number | null = null;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0) revealToolbar();
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches.length === 1 ? (e.touches[0]?.clientY ?? null) : null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY;
+      if (touchY === null || y === undefined || Math.abs(y - touchY) < SWIPE_MIN_PX) return;
+      touchY = null; // once per swipe
+      revealToolbar();
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      // Pointing at the header band (where the toolbar sits) reveals it, so it can be clicked.
+      const head = headRef.current;
+      if (head && e.clientY <= head.getBoundingClientRect().bottom + 48) revealToolbar();
+    };
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("mousemove", onMouseMove);
+    };
+  }, [revealToolbar]);
+
   const switchTo = useCallback(
     async (id: string | null, newFolderId: string | null = null) => {
       setDrawerOpen(false);
@@ -633,46 +700,54 @@ export function TypewriterApp() {
 
   return (
     <div className={`app${typing ? " is-typing" : ""}`}>
-      <header className="chrome topbar">
-        <Link href="/" className="brand" aria-label="Olive Writer">
-          <Logo height={20} />
-        </Link>
-        <nav className="topbar-actions" aria-label="Document actions">
-          <button type="button" className="icon-btn" title="Files" aria-label="Files" onClick={() => setDrawerOpen(true)}>
-            <Icon name="files" />
-          </button>
-          <button type="button" className="icon-btn" title="New document" aria-label="New document" onClick={() => void switchTo(null)}>
-            <Icon name="plus" />
-          </button>
-          <button
-            type="button"
-            className="icon-btn"
-            title="Save to server (Ctrl+S)"
-            aria-label="Save to server"
-            disabled={saving || loading}
-            onClick={() => void save("manual")}
-          >
-            <Icon name="save" />
-          </button>
-          <SoundToggle />
-          <ThemeToggle />
-          <Link href="/settings" className="icon-btn" title="Settings" aria-label="Settings">
-            <Icon name="settings" />
+      <div className="app-head" ref={headRef}>
+        <header className="chrome topbar">
+          <Link href="/" className="brand" aria-label="Olive Writer">
+            <Logo height={20} />
           </Link>
-          <UserMenu />
-        </nav>
-      </header>
-
-      {editor && (
-        <div className="chrome toolbar-wrap">
-          <Toolbar
-            editor={editor}
-            colors={settings.toolbarColors}
-            onLink={() => setLinkOpen(true)}
-            onMedia={() => setMediaOpen(true)}
+          <nav className="topbar-actions" aria-label="Document actions">
+            <button type="button" className="icon-btn" title="Files" aria-label="Files" onClick={() => setDrawerOpen(true)}>
+              <Icon name="files" />
+            </button>
+            <button type="button" className="icon-btn" title="New document" aria-label="New document" onClick={() => void switchTo(null)}>
+              <Icon name="plus" />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              title="Save to server (Ctrl+S)"
+              aria-label="Save to server"
+              disabled={saving || loading}
+              onClick={() => void save("manual")}
+            >
+              <Icon name="save" />
+            </button>
+            <SoundToggle />
+            <ThemeToggle />
+            <Link href="/settings" className="icon-btn" title="Settings" aria-label="Settings">
+              <Icon name="settings" />
+            </Link>
+            <UserMenu />
+          </nav>
+          <HeaderMenu
+            onFiles={() => setDrawerOpen(true)}
+            onNew={() => void switchTo(null)}
+            onSave={() => void save("manual")}
+            saveDisabled={saving || loading}
           />
-        </div>
-      )}
+        </header>
+
+        {editor && (
+          <div className={`toolbar-wrap${toolbarShown ? " shown" : ""}`} onFocus={revealToolbar}>
+            <Toolbar
+              editor={editor}
+              colors={settings.toolbarColors}
+              onLink={() => setLinkOpen(true)}
+              onMedia={() => setMediaOpen(true)}
+            />
+          </div>
+        )}
+      </div>
 
       <main
         className="page"
@@ -680,7 +755,9 @@ export function TypewriterApp() {
         // Capture phase so the editor's own key handling can't swallow the event first.
         onKeyDownCapture={(e) => {
           const kind = soundForKey(e.nativeEvent);
-          if (kind) play(kind);
+          if (!kind) return;
+          play(kind);
+          hideToolbar(); // typing starts: the toolbar gets out of the way
         }}
       >
         <input

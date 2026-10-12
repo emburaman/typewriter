@@ -29,8 +29,16 @@
 
 - One centered writing column (about 72 characters wide) in a typewriter font. The page leaves
   space below the text so the line you're typing doesn't sit at the bottom edge of the screen.
-- **Focus mode**: as soon as you type, the header and toolbar fade out and the status bar dims.
-  Moving the mouse, or tabbing into a control, brings them back.
+- **Focus mode**: as soon as you type, the header fades out and the status bar dims. Moving the
+  mouse, or tabbing into a control, brings them back.
+- **Formatting toolbar**: shown when the page opens, then hidden after 5 seconds, and hidden as soon
+  as you type. Scrolling up or down (mouse wheel, trackpad, or a swipe on a touch screen) brings it
+  back for 5 seconds; so does pointing at the top of the screen, or tabbing into it. It doesn't hide
+  while the pointer is over it or it holds focus. It floats over the top of the page, so showing
+  and hiding it never moves the text. Keyboard shortcuts work whether it's shown or not.
+- **Header**: on phones (640 px wide or less) the header buttons (Files, New document, Save, sound,
+  theme, Settings, account) collapse into a ☰ menu, and the toolbar becomes one row you can scroll
+  sideways.
 - **Themes**: Light, Dark or System (follows the OS and updates live when the OS setting changes).
   To switch, use the sun/moon/monitor button in the header (it cycles through the three) or
   *Settings → Appearance*. A small script runs before the page renders and applies the theme from

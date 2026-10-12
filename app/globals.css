@@ -212,14 +212,17 @@ code {
   opacity: 0.35;
 }
 
-.topbar {
+/* Header and formatting toolbar stick together, so the toolbar always sits right under the header. */
+.app-head {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+.topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.5rem 1rem;
+  padding: 1rem 1.5rem;
   background: var(--bg);
 }
 .brand {
@@ -236,14 +239,61 @@ code {
   gap: 0.15rem;
 }
 
+/* Hamburger menu: only on phone widths (see the media query below). */
+.header-menu {
+  display: none;
+  position: relative;
+}
+.header-menu .row-menu {
+  min-width: 15rem;
+}
+.header-menu .row-menu button,
+.header-menu .menu-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.header-menu .row-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.header-menu-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.header-menu-identity strong,
+.header-menu-identity .muted {
+  display: block;
+}
+
+/*
+ * The formatting toolbar floats over the top of the page instead of taking a row of its own,
+ * so showing and hiding it never shifts the text. It is hidden unless .shown.
+ */
 .toolbar-wrap {
-  position: sticky;
-  top: 3.1rem;
-  z-index: 9;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
   display: flex;
   justify-content: center;
-  padding: 0 1rem 0.5rem;
-  background: var(--bg);
+  padding: 0 1rem;
+  opacity: 0;
+  transform: translateY(-0.4rem);
+  pointer-events: none;
+  transition:
+    opacity 250ms ease,
+    transform 250ms ease;
+}
+.toolbar-wrap.shown,
+.toolbar-wrap:focus-within {
+  opacity: 1;
+  transform: none;
+}
+.toolbar-wrap.shown .toolbar,
+.toolbar-wrap:focus-within .toolbar {
+  pointer-events: auto;
 }
 .toolbar {
   display: flex;
@@ -253,6 +303,7 @@ code {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .toolbar-group {
   display: flex;
@@ -345,7 +396,8 @@ code {
   width: 100%;
   max-width: 72ch;
   margin: 0 auto;
-  padding: 2rem 1.5rem 45vh; /* generous bottom space keeps the line being typed mid-screen */
+  /* Top: room for the floating toolbar. Bottom: keeps the line being typed mid-screen. */
+  padding: 4.25rem 1.5rem 45vh;
   font-family: var(--editor-font), "Courier New", monospace;
   font-size: var(--editor-size);
 }
@@ -1010,17 +1062,40 @@ code {
   font-size: 0.82rem;
 }
 
+@media (max-width: 640px) {
+  .topbar {
+    padding: 0.5rem 1rem;
+  }
+  .topbar-actions {
+    display: none;
+  }
+  .header-menu {
+    display: block;
+  }
+  /* One row that scrolls sideways, rather than several rows covering the text. */
+  .toolbar-wrap {
+    padding: 0 0.5rem;
+  }
+  .toolbar {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .toolbar-group {
+    flex-shrink: 0;
+  }
+}
+
 @media (max-width: 600px) {
   .page {
-    padding: 1.25rem 1rem 40vh;
-  }
-  .toolbar-wrap {
-    top: 3rem;
+    padding: 3.75rem 1rem 40vh;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chrome {
+  .chrome,
+  .toolbar-wrap {
     transition: none;
   }
 }

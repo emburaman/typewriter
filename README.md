@@ -26,7 +26,7 @@ server (MySQL) and, if you want, to Google Drive.
 | | |
 |---|---|
 | **Accounts** | "Sign in with Google", invite-only. The first person to sign in becomes the admin and invites others in Settings → Users. Each person's documents, folders, settings and Google Drive connection are private to them. |
-| **Clean UI** | Centered writing column, typewriter-style font, and a focus mode where the header, toolbar and status bar fade out while you type. **Light / Dark / System** themes in the Olive Writer palette, applied before first paint so the screen never flashes. |
+| **Clean UI** | Centered writing column, typewriter-style font, and a focus mode where the header, toolbar and status bar fade out while you type (scroll to bring the toolbar back). On phones the header actions collapse into a ☰ menu. **Light / Dark / System** themes in the Olive Writer palette, applied before first paint so the screen never flashes. |
 | **Typewriter sound** | Every keystroke makes a typewriter strike. Space, Backspace and Enter (carriage return plus bell) each have their own sound. Turn it on or off with the speaker icon; the choice is kept in a cookie. |
 | **Simple formatting** | Bold, italic, underline, up to **5 font colors** from a palette you choose, bulleted and numbered lists. |
 | **Keyboard-first** | `Ctrl+B/I/U`, `Ctrl+1…5` for colors, `Ctrl+0` for the default color, `1. ` and `- ` start lists, `Tab` right after the bullet/number nests the item, `Ctrl+S` saves. |

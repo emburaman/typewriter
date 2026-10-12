@@ -14,6 +14,13 @@ async function openEditor(page: Page) {
 
 const editorHtml = (page: Page) => page.locator(".editor-content").innerHTML();
 
+/** Typing hides the formatting toolbar; a scroll brings it back, as it would for a user. */
+const showToolbar = async (page: Page) => {
+  await page.mouse.move(600, 400);
+  await page.mouse.wheel(0, -40);
+  await expect(page.locator(".toolbar-wrap")).toHaveClass(/shown/);
+};
+
 test.beforeEach(async ({ request }) => {
   await request.put("/api/settings", { data: { theme: "system", toolbarColors: DEFAULT_COLORS } });
 });
@@ -258,6 +265,7 @@ test("link dialog inserts, edits and rejects unsafe links (Ctrl+K)", async ({ pa
 test("footnotes: numbered, linked both ways, renumbered, removed with their reference", async ({ page }) => {
   await openEditor(page);
   await page.keyboard.type("Second claim");
+  await showToolbar(page);
   await page.getByRole("button", { name: "Footnote" }).click();
   await page.keyboard.type("note two");
   await page.locator(".editor-content p").first().click();
@@ -444,6 +452,7 @@ test("swatch 0 sits before color 1, shows the theme's text color and resets the 
   await page.keyboard.press("ControlOrMeta+2");
   await page.keyboard.type("blue");
   await expect(swatches.first()).toHaveAttribute("aria-pressed", "false");
+  await showToolbar(page);
   await swatches.first().click();
   await page.keyboard.type(" plain");
   await expect(swatches.first()).toHaveAttribute("aria-pressed", "true");
@@ -488,4 +497,57 @@ test("Trash: delete moves to the Trash with Undo; documents can be restored or d
   await request.delete(`/api/documents/${id}`);
   expect((await request.delete(`/api/documents/trash/${id}`)).status()).toBe(204);
   expect(((await (await request.get("/api/documents/trash")).json()) as { id: string }[]).map((d) => d.id)).not.toContain(id);
+});
+
+test("formatting toolbar: hides 5 s after load and on typing, comes back on scroll or swipe", async ({ page }) => {
+  await page.goto("/");
+  const wrap = page.locator(".toolbar-wrap");
+  await expect(wrap).toHaveClass(/shown/);
+  await expect(wrap).not.toHaveClass(/shown/, { timeout: 8_000 });
+  await expect(wrap).toHaveCSS("opacity", "0");
+
+  // Mouse wheel (up or down) reveals it; typing hides it straight away.
+  await page.mouse.move(600, 500);
+  await page.mouse.wheel(0, 60);
+  await expect(wrap).toHaveClass(/shown/);
+  await page.locator(".editor-content").click();
+  await page.keyboard.type("x");
+  await expect(wrap).not.toHaveClass(/shown/);
+
+  // A vertical swipe reveals it too.
+  await page.evaluate(() => {
+    const touch = (y: number) => [new Touch({ identifier: 1, target: document.body, clientX: 200, clientY: y })];
+    window.dispatchEvent(new TouchEvent("touchstart", { touches: touch(500) }));
+    window.dispatchEvent(new TouchEvent("touchmove", { touches: touch(420) }));
+  });
+  await expect(wrap).toHaveClass(/shown/);
+  await expect(page.getByRole("button", { name: "Bold" })).toBeVisible();
+
+  // …and it hides again a few seconds after the last scroll.
+  await expect(wrap).not.toHaveClass(/shown/, { timeout: 8_000 });
+});
+
+test("header: taller on wide screens; actions collapse into a menu on phones", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await page.goto("/");
+  const topbar = page.locator(".topbar");
+  await expect(topbar).toHaveCSS("padding", "16px 24px");
+  await expect(page.getByRole("button", { name: "Menu" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Files" })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect(page.getByRole("button", { name: "Files" })).toBeHidden();
+  const menuButton = page.getByRole("button", { name: "Menu" });
+  await menuButton.click();
+  const menu = page.getByRole("menu");
+  for (const name of ["Files", "New document", "Save to server", /Typewriter sound/, /Theme/, "Settings", "Sign out"]) {
+    await expect(menu.getByRole(/Typewriter/.test(String(name)) ? "menuitemcheckbox" : "menuitem", { name })).toBeVisible();
+  }
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+
+  await menuButton.click();
+  await menu.getByRole("menuitem", { name: "Files" }).click();
+  await expect(menu).toBeHidden();
+  await expect(page.getByRole("dialog", { name: /Files/ })).toBeVisible();
 });
