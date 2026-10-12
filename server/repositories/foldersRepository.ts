@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { getPool } from "../db/pool.js";
 import type { Folder } from "../../lib/shared/schemas.js";
@@ -7,6 +8,7 @@ interface FolderRow extends RowDataPacket {
   name: string;
   parent_id: string | null;
   drive_folder_id: string | null;
+  drive_name: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -105,18 +107,46 @@ export interface FolderDriveRow {
   name: string;
   parentId: string | null;
   driveFolderId: string | null;
+  driveName: string | null;
+}
+
+const toDriveRow = (row: FolderRow): FolderDriveRow => ({
+  id: row.id,
+  name: row.name,
+  parentId: row.parent_id,
+  driveFolderId: row.drive_folder_id,
+  driveName: row.drive_name,
+});
+
+/** Every folder with its Drive bookkeeping (for the Drive → app pull). */
+export async function listForSync(userId: string): Promise<FolderDriveRow[]> {
+  const [rows] = await getPool().execute<FolderRow[]>("SELECT * FROM folders WHERE user_id = ?", [userId]);
+  return rows.map(toDriveRow);
+}
+
+/** Renamed in Drive: take the name (and remember it as the Drive name). */
+export async function renameFromDrive(userId: string, id: string, name: string): Promise<void> {
+  await getPool().execute("UPDATE folders SET name = ?, drive_name = ? WHERE id = ? AND user_id = ?", [name, name, id, userId]);
+}
+
+export async function createFromDrive(userId: string, name: string, parentId: string | null, driveFolderId: string): Promise<string> {
+  const id = randomUUID();
+  await getPool().execute(
+    "INSERT INTO folders (id, user_id, name, parent_id, drive_folder_id, drive_name) VALUES (?, ?, ?, ?, ?, ?)",
+    [id, userId, name, parentId, driveFolderId, name],
+  );
+  return id;
 }
 
 export async function findFolderForDrive(userId: string, id: string): Promise<FolderDriveRow | null> {
   const [rows] = await getPool().execute<FolderRow[]>("SELECT * FROM folders WHERE id = ? AND user_id = ?", [id, userId]);
   const row = rows[0];
-  return row ? { id: row.id, name: row.name, parentId: row.parent_id, driveFolderId: row.drive_folder_id } : null;
+  return row ? toDriveRow(row) : null;
 }
 
-export async function setDriveFolderId(userId: string, id: string, driveFolderId: string | null): Promise<void> {
-  await getPool().execute("UPDATE folders SET drive_folder_id = ?, updated_at = updated_at WHERE id = ? AND user_id = ?", [
-    driveFolderId,
-    id,
-    userId,
-  ]);
+export async function setDriveFolderId(userId: string, id: string, driveFolderId: string, driveName: string): Promise<void> {
+  await getPool().execute(
+    "UPDATE folders SET drive_folder_id = ?, drive_name = ?, updated_at = updated_at WHERE id = ? AND user_id = ?",
+    [driveFolderId, driveName, id, userId],
+  );
 }

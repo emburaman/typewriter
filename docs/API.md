@@ -126,6 +126,8 @@ interface DocumentSummary {
 }
 interface DocumentRecord extends DocumentSummary {
   revision: number;            // +1 on every save; used to detect edits from another device
+  contentSource: "json" | "html"; // "html" right after an edit was pulled from Google Docs
+                                  // (contentHtml is current; the editor converts it to JSON)
   contentJson: { type: "doc", content?: unknown[] };   // TipTap / ProseMirror JSON
   contentHtml: string;                                   // rendered HTML (sent to Drive)
   createdAt: string;
@@ -184,8 +186,18 @@ Uploads the stored document to Drive now, whatever `storageProvider` is set to.
 → `200 DocumentSaveResult` (`drive.status: "synced"`) · `502 DocumentSaveResult` (`"failed"`) · `404`
 
 ### `DELETE /api/documents/{id}`
-Deletes the server copy. A Drive copy, if any, is left in place.
-→ `204` · `404`
+Moves the document to the **Trash**, where it's restorable for 30 days and then purged. With
+Drive sync, its Drive file goes to Drive's trash too.
+→ `204` · `200 {"driveWarning": "…"}` (trashed here, but Drive couldn't be updated) · `404`
+
+### `GET /api/documents/trash` → `200 TrashedDocument[]`
+`TrashedDocument = DocumentSummary & { deletedAt: string }`, most recently deleted first.
+
+### `POST /api/documents/trash/{id}/restore`
+Back from the Trash, and out of Drive's trash too. → `200 DocumentRecord & { driveWarning? }` · `404`
+
+### `DELETE /api/documents/trash/{id}`
+Deletes forever. Only works on documents already in the Trash. → `204` · `404`
 
 ---
 
@@ -262,8 +274,15 @@ stores the user's tokens encrypted with AES-256-GCM, and redirects with **`303`*
   the Drive permission was unticked on Google's consent screen; in that case the partial grant is
   revoked and nothing is stored)
 
+### `POST /api/google/pull`
+Brings in changes made in Google Drive / Google Docs now (the server also does this every minute
+for every user with Drive sync on). Body `{"force": true}` is optional. Skipped when a pull ran in
+the last 5 s (1 s with `force`), or when Drive sync is off.
+→ `200 {"pulled", "imported", "trashed", "restored", "conflicts", "foldersChanged"}` or `200 {"skipped": true}`
+
 ### `POST /api/google/sync`
-Mirrors every folder and uploads every document to Drive now, whatever the storage setting.
+Pulls Drive changes in, then mirrors every folder and uploads every document to Drive now,
+whatever the storage setting.
 Documents are uploaded one at a time, and a failure on one doesn't stop the others.
 → `200 {"folders": n, "documents": n, "failed": [{"title": "…", "message": "…"}]}` ·
 `409` (not connected, or Drive access not granted) · `403 drive_scope_missing` ·

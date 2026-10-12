@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { HttpError } from "../errors.js";
 import * as usersRepo from "../repositories/usersRepository.js";
 import { devLogin, endSession, googleLoginUrl, startSession } from "../services/auth.js";
+import { connectForTests } from "../services/googleDrive.js";
 import type { AuthConfig } from "../../lib/shared/schemas.js";
 
 /** Sign-in endpoints (public). */
@@ -42,6 +43,17 @@ const LOGIN_ERRORS: Record<string, string> = {
   admin_only: "The first account must be the admin (ADMIN_EMAIL).",
   email_unverified: "This email address isn't verified.",
 };
+
+/**
+ * POST /api/auth/dev-drive-connection — test-only: connect the signed-in user's "Google Drive"
+ * without Google's consent screen. Only with AUTH_DEV_LOGIN and a fake Drive (GOOGLE_API_ROOT_URL).
+ */
+authRouter.post("/dev-drive-connection", async (req, res) => {
+  if (!config.auth.devLogin || !config.google.apiRootUrl || !req.user) throw new HttpError(404, "not_found", "Not found");
+  const { email } = z.object({ email: z.string().trim().toLowerCase().pipe(z.email()) }).parse(req.body);
+  await connectForTests(req.user.id, email);
+  res.status(204).end();
+});
 
 /** POST /api/auth/dev-login — test-only sign-in without Google (AUTH_DEV_LOGIN; never in production). */
 authRouter.post("/dev-login", async (req, res) => {

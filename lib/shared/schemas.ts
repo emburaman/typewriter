@@ -108,6 +108,8 @@ export const documentWriteSchema = z.object({
    * `auto` (background autosave: only if the Drive copy is a couple of minutes old), `skip`.
    */
   driveSync: z.enum(["now", "auto", "skip"]).default("now"),
+  /** Content only re-encoded from a Google Docs pull (see the editor): not an app-side edit. */
+  sameAsDrive: z.boolean().optional(),
 });
 export type DocumentWrite = z.input<typeof documentWriteSchema>;
 
@@ -128,9 +130,19 @@ export interface DocumentSummary {
 export interface DocumentRecord extends DocumentSummary {
   /** Incremented by every save; used to detect edits from another device. */
   revision: number;
+  /**
+   * "html" right after an edit was pulled from Google Docs: `contentHtml` is the current content
+   * (the editor converts it); "json": `contentJson` is.
+   */
+  contentSource: "json" | "html";
   contentJson: EditorJson;
   contentHtml: string;
   createdAt: string;
+}
+
+/** A document in the app's Trash (GET /api/documents/trash). */
+export interface TrashedDocument extends DocumentSummary {
+  deletedAt: string;
 }
 
 /** Result of PUT /api/documents/:id — includes Drive sync outcome when enabled. */

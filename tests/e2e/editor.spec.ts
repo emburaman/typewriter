@@ -454,3 +454,38 @@ test("swatch 0 sits before color 1, shows the theme's text color and resets the 
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   expect(await swatchColor()).toBe(await textColor());
 });
+
+test("Trash: delete moves to the Trash with Undo; documents can be restored or deleted forever", async ({ page, request }) => {
+  const title = `Trash test ${Date.now()}`;
+  const id = crypto.randomUUID();
+  await request.put(`/api/documents/${id}`, {
+    data: { title, contentJson: { type: "doc", content: [] }, contentHtml: "<p></p>" },
+  });
+  await openEditor(page);
+  await page.getByRole("button", { name: "Files" }).click();
+  const panel = page.getByRole("dialog", { name: "Files" });
+
+  // Move to Trash, then Undo from the notice.
+  const row = panel.locator(".doc-row", { hasText: title });
+  await row.hover();
+  await row.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Move to Trash" }).click();
+  await expect(page.locator(".toast")).toContainText("Moved");
+  await page.locator(".toast").getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await request.get(`/api/documents/${id}`)).status()).toBe(200);
+
+  // Move to Trash again; restore from the Trash section.
+  await request.delete(`/api/documents/${id}`);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Files" }).click();
+  await panel.getByRole("button", { name: /^Trash \(\d+\)$/ }).click();
+  const trashed = panel.locator(".trash .doc-row", { hasText: title });
+  await trashed.getByRole("button", { name: "Restore" }).click();
+  await expect.poll(async () => (await request.get(`/api/documents/${id}`)).status()).toBe(200);
+
+  // Delete forever only works from the Trash.
+  expect((await request.delete(`/api/documents/trash/${id}`)).status()).toBe(404);
+  await request.delete(`/api/documents/${id}`);
+  expect((await request.delete(`/api/documents/trash/${id}`)).status()).toBe(204);
+  expect(((await (await request.get("/api/documents/trash")).json()) as { id: string }[]).map((d) => d.id)).not.toContain(id);
+});

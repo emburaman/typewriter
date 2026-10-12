@@ -3,28 +3,31 @@ import * as documentsRepo from "../repositories/documentsRepository.js";
 import * as foldersRepo from "../repositories/foldersRepository.js";
 import * as googleRepo from "../repositories/googleRepository.js";
 import * as settingsRepo from "../repositories/settingsRepository.js";
+import { pullFromDrive, type PullResult, type PullStore } from "./drivePull.js";
 import { DriveTreeSync, type FolderStore } from "./driveTree.js";
-import { createDriveApi, isConnectedWithDriveAccess, toHtmlFile } from "./googleDrive.js";
+import { createDriveApi, createPullApi, isConnectedWithDriveAccess, toHtmlFile } from "./googleDrive.js";
 import { isInsufficientScopeError, MISSING_DRIVE_ACCESS_MESSAGE } from "./googleScopes.js";
 import type { DocumentRecord } from "../../lib/shared/schemas.js";
 
 /**
- * Google Drive mirroring of folders and documents. The database stays the source of truth:
- * Drive operations run after the database change, and a failure never undoes it — the next
- * sync (any save, or "Sync everything") repairs the Drive side.
+ * Two-way Google Drive sync of folders and documents.
+ *  - push (app → Drive) right after each change in the app;
+ *  - pull (Drive → app) every minute in the background, when the app asks (Files panel, tab
+ *    focus), and before "Sync everything".
+ * The database stays authoritative for the app; Drive failures never undo app changes.
  */
 
 /** The folder store for one user's tree (every query is scoped to that user). */
 const storeFor = (userId: string): FolderStore => ({
   getFolder: (id) => foldersRepo.findFolderForDrive(userId, id),
-  setDriveFolderId: (id, driveFolderId) => foldersRepo.setDriveFolderId(userId, id, driveFolderId),
+  setDriveFolderId: (id, driveFolderId, driveName) => foldersRepo.setDriveFolderId(userId, id, driveFolderId, driveName),
   getRootId: async () => (await googleRepo.getCredentials(userId))?.folderId ?? null,
   setRootId: (id) => googleRepo.setFolderId(userId, id),
 });
 
 /**
- * One Drive sync at a time per user, so concurrent saves can't create the same folder twice.
- * Different users have different Drives and never wait on each other.
+ * One Drive operation at a time per user, so concurrent saves can't create the same folder
+ * twice and a pull never interleaves with a push. Different users never wait on each other.
  */
 const queues = new Map<string, Promise<unknown>>();
 function serialized<T>(userId: string, task: () => Promise<T>): Promise<T> {
@@ -37,12 +40,19 @@ function serialized<T>(userId: string, task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function withTree<T>(userId: string, work: (tree: DriveTreeSync, fontFamily: string) => Promise<T>): Promise<T> {
+interface TreeContext {
+  tree: DriveTreeSync;
+  fontFamily: string;
+  account: string | null;
+}
+
+async function withTree<T>(userId: string, work: (ctx: TreeContext) => Promise<T>): Promise<T> {
   return serialized(userId, async () => {
     const settings = await settingsRepo.getSettings(userId);
     try {
       const tree = new DriveTreeSync(await createDriveApi(userId), storeFor(userId), settings.driveFolderName);
-      return await work(tree, settings.fontFamily);
+      const account = (await googleRepo.getCredentials(userId))?.accountEmail ?? null;
+      return await work({ tree, fontFamily: settings.fontFamily, account });
     } catch (err) {
       if (isInsufficientScopeError(err)) throw new HttpError(403, "drive_scope_missing", MISSING_DRIVE_ACCESS_MESSAGE);
       if (err instanceof HttpError) throw err;
@@ -59,70 +69,140 @@ export async function isDriveSyncEnabled(userId: string): Promise<boolean> {
   return settings.storageProvider === "google_drive" && (await isConnectedWithDriveAccess(userId));
 }
 
-/** Uploads one document into its folder in Drive; records and returns the Drive file id. */
-export async function uploadDocument(userId: string, doc: DocumentRecord): Promise<string> {
-  return withTree(userId, async (tree, fontFamily) => {
-    const fileId = await tree.uploadDocument({
-      title: doc.title,
-      html: toHtmlFile(doc, fontFamily),
-      driveFileId: doc.driveFileId,
-      folderId: doc.folderId,
-    });
-    await documentsRepo.markDriveSynced(userId, doc.id, fileId);
-    return fileId;
+/* ------------------------------- push ------------------------------- */
+
+async function push(ctx: TreeContext, userId: string, doc: DocumentRecord): Promise<string> {
+  const pushed = await ctx.tree.uploadDocument({
+    title: doc.title,
+    html: toHtmlFile(doc, ctx.fontFamily),
+    driveFileId: doc.driveFileId,
+    folderId: doc.folderId,
   });
+  await documentsRepo.markPushed(userId, doc.id, { ...pushed, revision: doc.revision, account: ctx.account });
+  return pushed.fileId;
+}
+
+/** Uploads one document into its folder in Drive; records what Drive now holds. */
+export function uploadDocument(userId: string, doc: DocumentRecord): Promise<string> {
+  return withTree(userId, (ctx) => push(ctx, userId, doc));
+}
+
+/** After a document was moved to the app's Trash: send its Drive file to Drive's trash. */
+export function trashInDrive(userId: string, driveFileId: string): Promise<void> {
+  return withTree(userId, ({ tree }) => tree.trashFile(driveFileId));
 }
 
 /** After a folder was created, renamed or moved in the app. */
 export function syncFolder(userId: string, folderId: string): Promise<void> {
-  return withTree(userId, async (tree) => {
+  return withTree(userId, async ({ tree }) => {
     await tree.ensureFolder(folderId);
   });
 }
 
 /** After a document moved to another folder (only matters once it has been uploaded). */
 export function syncDocumentLocation(userId: string, doc: DocumentRecord): Promise<void> {
-  return withTree(userId, async (tree) => {
+  return withTree(userId, async ({ tree }) => {
     if (doc.driveFileId) await tree.placeDocument(doc.driveFileId, doc.folderId);
   });
 }
 
 /** After an app folder was deleted (its contents already moved up to `parentFolderId`). */
 export function removeFolder(userId: string, driveFolderId: string, parentFolderId: string | null): Promise<void> {
-  return withTree(userId, (tree) => tree.removeFolder(driveFolderId, parentFolderId));
+  return withTree(userId, ({ tree }) => tree.removeFolder(driveFolderId, parentFolderId));
 }
 
 /** After the root folder name changed in Settings: rename it in Drive. */
 export function syncRoot(userId: string): Promise<void> {
-  return withTree(userId, async (tree) => {
+  return withTree(userId, async ({ tree }) => {
     await tree.ensureFolder(null);
   });
+}
+
+/* ------------------------------- pull ------------------------------- */
+
+function pullStoreFor(userId: string, unlinked: string[]): PullStore {
+  return {
+    listFolders: () => foldersRepo.listForSync(userId),
+    listDocs: () => documentsRepo.listForSync(userId),
+    renameFolder: (id, name) => foldersRepo.renameFromDrive(userId, id, name),
+    moveFolder: (id, parentId) => foldersRepo.updateFolder(userId, id, { parentId }),
+    deleteFolder: async (id) => {
+      await foldersRepo.deleteFolder(userId, id);
+    },
+    createFolder: (name, parentId, driveFolderId) => foldersRepo.createFromDrive(userId, name, parentId, driveFolderId),
+    importContent: (id, c) => documentsRepo.importContent(userId, id, c),
+    createDocFromDrive: (c) => documentsRepo.createFromDrive(userId, c),
+    setTitle: (id, title) => documentsRepo.setTitleFromDrive(userId, id, title),
+    moveDoc: async (id, folderId) => {
+      await documentsRepo.moveDocument(userId, id, folderId);
+    },
+    markInSync: (id, s) => documentsRepo.markInSync(userId, id, s),
+    trashDoc: async (id) => {
+      await documentsRepo.trashDocument(userId, id);
+    },
+    restoreDoc: async (id) => {
+      await documentsRepo.restoreDocument(userId, id);
+    },
+    unlinkDoc: async (id) => {
+      await documentsRepo.unlinkDrive(userId, id);
+      unlinked.push(id);
+    },
+  };
+}
+
+const lastPull = new Map<string, number>();
+
+/**
+ * Drive → app, then re-uploads documents the pull detached from Drive (e.g. edited here but
+ * trashed there). Returns what changed.
+ */
+export function pull(userId: string): Promise<PullResult> {
+  return withTree(userId, async (ctx) => {
+    lastPull.set(userId, Date.now());
+    const rootId = await ctx.tree.ensureFolder(null);
+    const unlinked: string[] = [];
+    const result = await pullFromDrive({
+      api: await createPullApi(userId),
+      store: pullStoreFor(userId, unlinked),
+      rootId,
+      account: ctx.account ?? "",
+    });
+    for (const id of unlinked) {
+      const doc = await documentsRepo.findDocument(userId, id);
+      if (doc) await push(ctx, userId, { ...doc, driveFileId: null });
+    }
+    await googleRepo.setLastPull(userId);
+    return result;
+  });
+}
+
+/** Pull unless one ran in the last `minIntervalMs` (for client-triggered refreshes). */
+export async function pullIfDue(userId: string, minIntervalMs: number): Promise<PullResult | null> {
+  if (Date.now() - (lastPull.get(userId) ?? 0) < minIntervalMs) return null;
+  if (!(await isDriveSyncEnabled(userId))) return null;
+  return pull(userId);
 }
 
 export interface SyncAllResult {
   folders: number;
   documents: number;
+  pulled: PullResult;
   failed: { title: string; message: string }[];
 }
 
-/** Mirrors every folder and uploads every document (for content created before Drive was on). */
-export function syncEverything(userId: string): Promise<SyncAllResult> {
-  return withTree(userId, async (tree, fontFamily) => {
+/** Pull from Drive, then mirror every folder and upload every document. */
+export async function syncEverything(userId: string): Promise<SyncAllResult> {
+  const pulled = await pull(userId);
+  return withTree(userId, async (ctx) => {
     const folders = await foldersRepo.listFolders(userId);
-    for (const f of folders) await tree.ensureFolder(f.id);
+    for (const f of folders) await ctx.tree.ensureFolder(f.id);
 
-    const result: SyncAllResult = { folders: folders.length, documents: 0, failed: [] };
+    const result: SyncAllResult = { folders: folders.length, documents: 0, pulled, failed: [] };
     for (const summary of await documentsRepo.listDocuments(userId)) {
       const doc = await documentsRepo.findDocument(userId, summary.id);
       if (!doc) continue;
       try {
-        const fileId = await tree.uploadDocument({
-          title: doc.title,
-          html: toHtmlFile(doc, fontFamily),
-          driveFileId: doc.driveFileId,
-          folderId: doc.folderId,
-        });
-        await documentsRepo.markDriveSynced(userId, doc.id, fileId);
+        await push(ctx, userId, doc);
         result.documents += 1;
       } catch (err) {
         if (isInsufficientScopeError(err)) throw err; // nothing else will work either
@@ -132,6 +212,39 @@ export function syncEverything(userId: string): Promise<SyncAllResult> {
     }
     return result;
   });
+}
+
+/* --------------------------- background loop --------------------------- */
+
+const PULL_EVERY_MS = 60_000;
+let loopRunning = false;
+let lastPurge = 0;
+
+/** Pulls Drive changes for every user with Drive sync on, every minute; purges old Trash daily. */
+export function startDriveSyncLoop(): NodeJS.Timeout {
+  const tick = async () => {
+    if (loopRunning) return; // a slow round must not overlap the next
+    loopRunning = true;
+    try {
+      if (Date.now() - lastPurge > 24 * 60 * 60 * 1000) {
+        lastPurge = Date.now();
+        const purged = await documentsRepo.purgeOldTrash();
+        if (purged) console.log(`[trash] permanently deleted ${purged} document(s) older than ${documentsRepo.TRASH_DAYS} days`);
+      }
+      for (const userId of await googleRepo.usersWithDriveSync()) {
+        try {
+          await pullIfDue(userId, PULL_EVERY_MS / 2);
+        } catch (err) {
+          console.warn(`[drive] background pull for ${userId} failed:`, err instanceof Error ? err.message : err);
+        }
+      }
+    } catch (err) {
+      console.error("[drive] background sync round failed:", err);
+    } finally {
+      loopRunning = false;
+    }
+  };
+  return setInterval(() => void tick(), PULL_EVERY_MS);
 }
 
 /**

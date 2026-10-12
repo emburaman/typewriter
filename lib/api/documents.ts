@@ -3,6 +3,7 @@ import type {
   DocumentSaveResult,
   DocumentSummary,
   DocumentWrite,
+  TrashedDocument,
   WithDriveWarning,
 } from "@/lib/shared/schemas";
 
@@ -14,7 +15,13 @@ export const createDocument = (doc: DocumentWrite) => request<DocumentSaveResult
 /** Create-or-replace by client-generated id. */
 export const saveDocument = (id: string, doc: DocumentWrite) =>
   request<DocumentSaveResult>("PUT", `/documents/${encodeURIComponent(id)}`, doc);
-export const deleteDocument = (id: string) => request<void>("DELETE", `/documents/${encodeURIComponent(id)}`);
+/** Moves a document to the Trash (and its Drive file to Drive's trash). */
+export const deleteDocument = (id: string) =>
+  request<{ driveWarning?: string } | undefined>("DELETE", `/documents/${encodeURIComponent(id)}`);
+export const listTrash = () => request<TrashedDocument[]>("GET", "/documents/trash");
+export const restoreDocument = (id: string) =>
+  request<WithDriveWarning<DocumentRecord>>("POST", `/documents/trash/${encodeURIComponent(id)}/restore`);
+export const deleteForever = (id: string) => request<void>("DELETE", `/documents/trash/${encodeURIComponent(id)}`);
 export const syncDocumentToDrive = (id: string) =>
   request<DocumentSaveResult>("POST", `/documents/${encodeURIComponent(id)}/drive-sync`);
 /** Moves a document to a folder (`null` = top level). */

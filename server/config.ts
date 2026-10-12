@@ -36,6 +36,8 @@ const envSchema = z.object({
   ADMIN_EMAIL: z.preprocess(emptyToUndefined, z.email().optional()),
   /** Test-only password-less sign-in (POST /api/auth/dev-login). Refused when NODE_ENV=production. */
   AUTH_DEV_LOGIN: z.preprocess((v) => v === "true" || v === "1", z.boolean()).default(false),
+  /** Test-only: send Google Drive API calls to this base URL (a fake Drive). Refused in production. */
+  GOOGLE_API_ROOT_URL: z.preprocess(emptyToUndefined, z.url().optional()),
 });
 
 function loadConfig() {
@@ -56,6 +58,9 @@ function loadConfig() {
 
   if (env.AUTH_DEV_LOGIN && env.NODE_ENV === "production") {
     throw new Error("AUTH_DEV_LOGIN must never be enabled when NODE_ENV=production");
+  }
+  if (env.GOOGLE_API_ROOT_URL && env.NODE_ENV === "production") {
+    throw new Error("GOOGLE_API_ROOT_URL (test-only fake Drive) must never be set when NODE_ENV=production");
   }
 
   // Sign-in only needs the OAuth client; storing Drive tokens also needs the encryption key.
@@ -90,6 +95,8 @@ function loadConfig() {
       configured: googleConfigured,
       clientId: env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: env.GOOGLE_CLIENT_SECRET ?? "",
+      /** Test-only fake Drive endpoint (see GOOGLE_API_ROOT_URL). */
+      apiRootUrl: env.GOOGLE_API_ROOT_URL ?? null,
       redirectUri: env.GOOGLE_REDIRECT_URI ?? `${env.APP_URL.replace(/\/$/, "")}/api/google/callback`,
     },
     googleFontsApiKey: env.GOOGLE_FONTS_API_KEY ?? null,

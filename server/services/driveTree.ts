@@ -1,3 +1,5 @@
+import { sha256 } from "./drivePull.js";
+
 /**
  * Mirrors the app's folder tree in Google Drive, under one root folder ("Olive Writer").
  *
@@ -14,6 +16,8 @@ export interface DriveItem {
   name: string;
   parents: string[];
   trashed: boolean;
+  /** Drive's file version (increases with every change). */
+  version?: number;
 }
 
 export interface DriveApi {
@@ -26,6 +30,9 @@ export interface DriveApi {
   update(id: string, change: { name?: string; addParent?: string; removeParents?: string[] }): Promise<void>;
   listChildren(folderId: string): Promise<string[]>;
   trash(id: string): Promise<void>;
+  untrash(id: string): Promise<void>;
+  /** A Google Doc exported as HTML (to fingerprint what Drive holds after our upload). */
+  exportHtml(id: string): Promise<string>;
   createDoc(name: string, parentId: string, html: string): Promise<string>;
   /** false when the file doesn't exist any more. */
   updateDoc(id: string, name: string, html: string): Promise<boolean>;
@@ -36,11 +43,14 @@ export interface FolderRecord {
   name: string;
   parentId: string | null;
   driveFolderId: string | null;
+  /** Drive name at the last sync (lets a pull tell Drive renames from app renames). */
+  driveName: string | null;
 }
 
 export interface FolderStore {
   getFolder(id: string): Promise<FolderRecord | null>;
-  setDriveFolderId(id: string, driveFolderId: string): Promise<void>;
+  /** Records the folder's Drive id and the name it has in Drive now. */
+  setDriveFolderId(id: string, driveFolderId: string, driveName: string): Promise<void>;
   getRootId(): Promise<string | null>;
   setRootId(id: string): Promise<void>;
 }
@@ -65,16 +75,38 @@ export class DriveTreeSync {
     return pending;
   }
 
-  /** Uploads (creates or updates) a document's Google Doc inside its folder. Returns the file id. */
-  async uploadDocument(doc: { title: string; html: string; driveFileId: string | null; folderId: string | null }): Promise<string> {
+  /**
+   * Uploads (creates or updates) a document's Google Doc inside its folder, restoring it from
+   * Drive's trash if needed. Returns the file id plus Drive's resulting version and a
+   * fingerprint of its content, so a later pull can tell real Google Docs edits from our own.
+   */
+  async uploadDocument(doc: {
+    title: string;
+    html: string;
+    driveFileId: string | null;
+    folderId: string | null;
+  }): Promise<{ fileId: string; version: number; contentHash: string }> {
     const parent = await this.ensureFolder(doc.folderId);
     const name = doc.title || "Untitled";
-    if (doc.driveFileId && (await this.api.updateDoc(doc.driveFileId, name, doc.html))) {
-      await this.place(doc.driveFileId, parent);
-      return doc.driveFileId;
+    let fileId: string | null = null;
+    if (doc.driveFileId) {
+      const existing = await this.api.get(doc.driveFileId);
+      if (existing?.trashed) await this.api.untrash(existing.id); // edits beat deletions
+      if (existing && (await this.api.updateDoc(existing.id, name, doc.html))) {
+        await this.place(existing.id, parent);
+        fileId = existing.id;
+      }
     }
-    // Never uploaded, or the Drive copy was deleted: create it.
-    return this.api.createDoc(name, parent, doc.html);
+    // Never uploaded, or the Drive copy was deleted for good: create it.
+    fileId ??= await this.api.createDoc(name, parent, doc.html);
+    const after = await this.api.get(fileId);
+    return { fileId, version: after?.version ?? 0, contentHash: sha256(await this.api.exportHtml(fileId)) };
+  }
+
+  /** Sends a document's file to Drive's trash (after it was deleted in the app). */
+  async trashFile(driveFileId: string): Promise<void> {
+    const item = await this.api.get(driveFileId);
+    if (item && !item.trashed) await this.api.trash(driveFileId);
   }
 
   /** Moves an already-uploaded document's file into its folder (after a move in the app). */
@@ -124,11 +156,12 @@ export class DriveTreeSync {
       if (item && !item.trashed) {
         if (item.name !== folder.name) await this.api.update(item.id, { name: folder.name });
         await this.place(item.id, parent, item);
+        if (folder.driveName !== folder.name) await this.store.setDriveFolderId(folder.id, item.id, folder.name);
         return item.id;
       }
     }
     const id = await this.api.createFolder(folder.name, parent);
-    await this.store.setDriveFolderId(folder.id, id);
+    await this.store.setDriveFolderId(folder.id, id, folder.name);
     return id;
   }
 

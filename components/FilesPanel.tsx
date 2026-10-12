@@ -6,6 +6,10 @@ import {
   createFolder,
   deleteDocument,
   deleteFolder,
+  deleteForever,
+  listTrash,
+  pullFromDrive,
+  restoreDocument,
   listDocuments,
   listFolders,
   moveDocument,
@@ -13,7 +17,7 @@ import {
 } from "@/lib/api";
 import { listUnsyncedDrafts, removeDraft, type LocalDraft } from "@/lib/editor/drafts";
 import { ancestorIds, canDrop, childrenOf, descendantIds, folderOptions, type DragItem } from "@/lib/files/tree";
-import type { DocumentSummary, Folder } from "@/lib/shared/schemas";
+import type { DocumentSummary, Folder, TrashedDocument } from "@/lib/shared/schemas";
 import { scopedKey } from "@/lib/storageScope";
 import { Icon } from "./Icon";
 import { Modal } from "./Modal";
@@ -66,6 +70,8 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
   const [folders, setFolders] = useState<Folder[]>([]);
   const [docs, setDocs] = useState<DocumentSummary[] | null>(null);
   const [drafts, setDrafts] = useState<LocalDraft[]>([]);
+  const [trash, setTrash] = useState<TrashedDocument[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -77,9 +83,10 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [f, d] = await Promise.all([listFolders(), listDocuments()]);
+      const [f, d, t] = await Promise.all([listFolders(), listDocuments(), listTrash()]);
       setFolders(f);
       setDocs(d);
+      setTrash(t);
       const serverIds = new Set(d.map((x) => x.id));
       setDrafts(listUnsyncedDrafts().filter((x) => !serverIds.has(x.id)));
     } catch (err) {
@@ -92,7 +99,14 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
   useEffect(() => setExpanded(readExpanded()), []);
 
   useEffect(() => {
-    if (open) void refresh();
+    if (!open) return;
+    void refresh();
+    // Bring in changes made in Google Drive, then show them.
+    pullFromDrive()
+      .then((r) => {
+        if (r && typeof r === "object" && !("skipped" in r)) void refresh();
+      })
+      .catch((err: unknown) => console.warn("[files] Drive pull failed:", err));
   }, [open, refresh]);
 
   // Reveal the open document: expand the folders above it.
@@ -176,13 +190,37 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
     void run(() => deleteFolder(folder.id), "Folder deleted");
   };
 
-  const removeDocument = (doc: DocumentSummary) => {
-    if (!window.confirm(`Delete “${doc.title || "Untitled"}” from the server? A Google Drive copy is not deleted.`)) return;
-    void run(async () => {
-      await deleteDocument(doc.id);
+  /** To the Trash (restorable), with an Undo right in the notice. */
+  const removeDocument = async (doc: DocumentSummary) => {
+    try {
+      const result = await deleteDocument(doc.id);
       removeDraft(doc.id);
       if (doc.id === currentId) onNewDocument(null);
-    }, "Document deleted");
+      if (result?.driveWarning) toast(result.driveWarning, "error");
+      else
+        toast(`Moved “${doc.title || "Untitled"}” to the Trash`, "info", {
+          label: "Undo",
+          onClick: () => void run(() => restoreDocument(doc.id)),
+        });
+    } catch (err) {
+      toast(errorMessage(err), "error");
+    } finally {
+      await refresh();
+    }
+  };
+
+  const restore = (doc: TrashedDocument) => void run(() => restoreDocument(doc.id), `Restored “${doc.title || "Untitled"}”`);
+
+  const purge = (doc: TrashedDocument) => {
+    if (!window.confirm(`Delete “${doc.title || "Untitled"}” forever? This can't be undone. (A copy in Google Drive's trash stays there.)`)) return;
+    void run(() => deleteForever(doc.id), "Deleted forever");
+  };
+
+  const emptyTrash = () => {
+    if (!window.confirm(`Delete all ${trash.length} documents in the Trash forever? This can't be undone.`)) return;
+    void run(async () => {
+      for (const d of trash) await deleteForever(d.id);
+    }, "Trash emptied");
   };
 
   const discardDraft = (draft: LocalDraft) => {
@@ -351,7 +389,7 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
               {menu(d.id, [
                 { label: "Open", onClick: () => onOpenDocument(d.id) },
                 { label: "Move to…", onClick: () => setMoveTarget({ type: "document", id: d.id, name: d.title || "Untitled" }) },
-                { label: "Delete", onClick: () => removeDocument(d), danger: true },
+                { label: "Move to Trash", onClick: () => void removeDocument(d), danger: true },
               ])}
             </div>
           </li>
@@ -419,6 +457,57 @@ export function FilesPanel({ open, currentId, onClose, onOpenDocument, onNewDocu
           )}
           <p className="hint tree-hint">Drag items onto a folder to move them, or here for the top level.</p>
         </section>
+
+        {trash.length > 0 && (
+          <section className="trash">
+            <button
+              type="button"
+              className="drawer-section-title trash-toggle"
+              aria-expanded={trashOpen}
+              onClick={() => setTrashOpen((o) => !o)}
+            >
+              <span className={`chevron${trashOpen ? " open" : ""}`}>
+                <Icon name="chevronRight" size={12} />
+              </span>
+              Trash ({trash.length})
+            </button>
+            {trashOpen && (
+              <>
+                <p className="hint">Kept for 30 days. Deleting a file in Google Drive also moves it here.</p>
+                <ul className="tree">
+                  {trash.map((d) => (
+                    <li key={d.id}>
+                      <div className="tree-row doc-row">
+                        <span className="tree-open">
+                          <Icon name="trash" size={16} />
+                          <span className="tree-label">
+                            {d.title || "Untitled"}
+                            <span className="doc-meta">Deleted {formatDate(d.deletedAt)}</span>
+                          </span>
+                        </span>
+                        <button type="button" className="btn btn-small" onClick={() => restore(d)}>
+                          Restore
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={`Delete ${d.title || "Untitled"} forever`}
+                          title="Delete forever"
+                          onClick={() => purge(d)}
+                        >
+                          <Icon name="x" size={16} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" className="btn btn-small btn-danger" onClick={emptyTrash}>
+                  Empty Trash
+                </button>
+              </>
+            )}
+          </section>
+        )}
 
         {moveTarget && (
           <MoveDialog

@@ -1171,3 +1171,20 @@ code {
   text-decoration: underline;
   cursor: pointer;
 }
+.trash {
+  margin-top: 1rem;
+}
+.trash-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.trash .tree-open {
+  cursor: default;
+}

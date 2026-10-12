@@ -31,6 +31,18 @@ googleRouter.post("/sync", async (req, res) => {
   res.status(200).json(await driveSync.syncEverything(user.id));
 });
 
+/**
+ * POST /api/google/pull — bring in changes made in Google Drive now (the server also does this
+ * every minute). Skipped when one ran in the last 5 s (1 s with `{"force": true}`) or Drive
+ * sync is off.
+ */
+googleRouter.post("/pull", async (req, res) => {
+  // `force` (the "Sync with Drive" button) only waits out a short burst guard.
+  const force = req.body && typeof req.body === "object" && (req.body as { force?: unknown }).force === true;
+  const result = await driveSync.pullIfDue(currentUser(req).id, force ? 1_000 : 5_000);
+  res.status(200).json(result ?? { skipped: true });
+});
+
 /** DELETE /api/google/connection — disconnect Drive. */
 googleRouter.delete("/connection", async (req, res) => {
   await drive.disconnect(currentUser(req).id);

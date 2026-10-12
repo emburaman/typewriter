@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, getDocument, listDocuments, saveDocument } from "@/lib/api";
+import { ApiError, getDocument, listDocuments, pullFromDrive, saveDocument } from "@/lib/api";
 import {
   EMPTY_DOC,
   getCurrentDocId,
@@ -12,6 +12,7 @@ import {
   writeDraft,
 } from "@/lib/editor/drafts";
 import { countWords, createExtensions, toEditorContent } from "@/lib/editor/extensions";
+import { normalizeGoogleDocsHtml } from "@/lib/editor/googleImport";
 import { countParagraphs, countVisualLines } from "@/lib/editor/stats";
 import { AUTOSAVE_INTERVAL_MS, type DocumentRecord, type EditorJson } from "@/lib/shared/schemas";
 import { soundForKey } from "@/lib/sound/keySounds";
@@ -39,7 +40,12 @@ const REMOTE_CHECK_INTERVAL_MS = 30_000;
 /** While the server is unreachable (or erroring), retry this often instead of per keystroke. */
 const SAVE_RETRY_MS = 10_000;
 
-type SaveMode = "manual" | "auto";
+/** manual = Ctrl+S; auto = background; convert = re-encode content pulled from Google Docs. */
+type SaveMode = "manual" | "auto" | "convert";
+
+/** What to put in the editor for a server document (Google Docs pulls arrive as HTML). */
+const editorContentOf = (doc: DocumentRecord) =>
+  doc.contentSource === "html" ? normalizeGoogleDocsHtml(doc.contentHtml) : toEditorContent(doc.contentJson);
 type SaveOutcome = "saved" | "conflict" | "failed";
 
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
@@ -203,7 +209,7 @@ export function TypewriterApp() {
     (doc: DocumentRecord) => {
       if (!editor) return;
       const { from } = editor.state.selection;
-      editor.commands.setContent(toEditorContent(doc.contentJson), { emitUpdate: false });
+      editor.commands.setContent(editorContentOf(doc), { emitUpdate: false });
       // Keep the cursor roughly where it was.
       const max = Math.max(1, editor.state.doc.content.size - 1);
       editor.commands.setTextSelection(Math.min(from, max));
@@ -221,7 +227,9 @@ export function TypewriterApp() {
       setServerSavedAt(doc.updatedAt);
       computeStats(editor);
       flushLocal();
+      if (doc.contentSource === "html") convertPulledContent();
     },
+    // convertPulledContent only goes through refs, so it needs no dependency entry.
     [editor, computeStats, flushLocal],
   );
 
@@ -251,10 +259,10 @@ export function TypewriterApp() {
         return "conflict";
       }
       if (savingRef.current) {
-        pendingSaveRef.current = pendingSaveRef.current === "manual" || mode === "manual" ? "manual" : "auto";
+        pendingSaveRef.current = pendingSaveRef.current === "manual" || mode === "manual" ? "manual" : mode;
         return "failed";
       }
-      if (mode === "auto" && !isServerDirty()) return "saved";
+      if (mode !== "manual" && !isServerDirty()) return "saved";
       window.clearTimeout(autosaveTimer.current);
       autosaveTimer.current = undefined;
       savingRef.current = true;
@@ -269,7 +277,8 @@ export function TypewriterApp() {
           contentHtml: editor.getHTML(),
           wordCount: countWords(editor.getText()),
           baseRevision: baseRevisionRef.current,
-          driveSync: mode === "manual" ? "now" : "auto",
+          driveSync: mode === "manual" ? "now" : mode === "convert" ? "skip" : "auto",
+          sameAsDrive: mode === "convert" ? true : undefined,
         });
         outcome = "saved";
         if (docIdRef.current !== id) return outcome; // user switched documents mid-save
@@ -325,6 +334,16 @@ export function TypewriterApp() {
   saveRef.current = save;
 
   /**
+   * Content just pulled from Google Docs is HTML; once it's in the editor, store it as editor
+   * JSON. `convert` saves don't count as an app-side edit and don't upload back to Drive.
+   */
+  function convertPulledContent() {
+    revision.current += 1;
+    setServerDirty(true);
+    void saveRef.current("convert");
+  }
+
+  /**
    * Loads a document: the server copy, or this browser's unsaved draft when it continues from
    * the server's current revision. A draft based on an older revision (another device saved
    * meanwhile) opens the conflict dialog.
@@ -363,7 +382,7 @@ export function TypewriterApp() {
             : unsyncedDraft.savedAt > Date.parse(server.updatedAt)));
       const draftConflicts = Boolean(server && unsyncedDraft && !draftContinuesServer && unsyncedDraft.baseRevision !== undefined);
 
-      let content: EditorJson = EMPTY_DOC;
+      let content: EditorJson | string = EMPTY_DOC;
       let docTitle = "";
       let dirty = false;
       let base: number | null = server?.revision ?? null;
@@ -374,7 +393,7 @@ export function TypewriterApp() {
         dirty = true;
         if (unsyncedDraft.baseRevision !== undefined) base = unsyncedDraft.baseRevision;
       } else if (server) {
-        content = server.contentJson;
+        content = server.contentSource === "html" ? normalizeGoogleDocsHtml(server.contentHtml) : server.contentJson;
         docTitle = server.title === "Untitled" ? "" : server.title;
       } else if (draft) {
         content = draft.contentJson;
@@ -383,7 +402,7 @@ export function TypewriterApp() {
         base = draft.baseRevision ?? null;
       }
 
-      editor.commands.setContent(toEditorContent(content), { emitUpdate: false });
+      editor.commands.setContent(typeof content === "string" ? content : toEditorContent(content), { emitUpdate: false });
       docIdRef.current = id;
       folderIdRef.current = server?.folderId ?? draft?.folderId ?? newFolderId;
       titleRef.current = docTitle;
@@ -404,7 +423,9 @@ export function TypewriterApp() {
       editor.setEditable(true, false);
       editor.commands.focus("end");
 
-      if (draftConflicts && server) {
+      if (typeof content === "string" && !dirty) {
+        convertPulledContent(); // pulled from Google Docs: store as editor JSON
+      } else if (draftConflicts && server) {
         openConflict(server);
       } else if (unreachable) {
         toast("Server unreachable — working from the browser draft. It will be saved when the server is back.", "error");
@@ -512,7 +533,13 @@ export function TypewriterApp() {
 
   // Changes from other devices: check when the tab comes back, and every 30 s while visible.
   useEffect(() => {
-    const onVisible = () => document.visibilityState === "visible" && void checkForRemoteChanges();
+    // Coming back to the tab: ask the server to pull Drive edits first, then check this document.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void pullFromDrive()
+        .catch((err: unknown) => console.warn("[drive] pull on focus failed:", err))
+        .then(() => checkForRemoteChanges());
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     const timer = window.setInterval(() => void checkForRemoteChanges(), REMOTE_CHECK_INTERVAL_MS);

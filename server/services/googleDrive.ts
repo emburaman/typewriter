@@ -1,11 +1,12 @@
 import { Readable } from "node:stream";
-import { google, type Auth } from "googleapis";
+import { google, type Auth, type drive_v3 } from "googleapis";
 import { config } from "../config.js";
 import { HttpError } from "../errors.js";
 import { decrypt, encrypt } from "./crypto.js";
 import { escapeHtml, replaceEmbedsWithLinks } from "./driveHtml.js";
 import { DRIVE_FILE_SCOPE, hasDriveScope, MISSING_DRIVE_ACCESS_MESSAGE } from "./googleScopes.js";
 import type { DriveApi } from "./driveTree.js";
+import type { DriveEntry, PullDriveApi } from "./drivePull.js";
 import { createOAuthClient, issueState } from "./oauth.js";
 import * as googleRepo from "../repositories/googleRepository.js";
 import type { DocumentRecord, GoogleStatus } from "../../lib/shared/schemas.js";
@@ -102,6 +103,24 @@ async function getAuthorizedClient(userId: string): Promise<Auth.OAuth2Client> {
   return client;
 }
 
+/** Test-only: point the Drive client at a fake Drive (GOOGLE_API_ROOT_URL). */
+const driveRoot = () => (config.google.apiRootUrl ? { rootUrl: config.google.apiRootUrl } : {});
+/** googleapis only applies a service-level rootUrl to plain requests; uploads need it per call. */
+const uploadOptions = () => (config.google.apiRootUrl ? { rootUrl: config.google.apiRootUrl } : undefined);
+
+/** Test-only: store a Drive connection without the Google consent screen (with a fake Drive). */
+export async function connectForTests(userId: string, accountEmail: string): Promise<void> {
+  const key = requireDriveConfigured();
+  await googleRepo.saveCredentials(userId, {
+    accessTokenEnc: encrypt("test-access-token", key),
+    refreshTokenEnc: encrypt("test-refresh-token", key),
+    expiryDate: Date.now() + 365 * 24 * 60 * 60 * 1000, // never refreshed during tests
+    scope: `openid ${DRIVE_FILE_SCOPE}`,
+    accountEmail,
+    folderId: null,
+  });
+}
+
 /** Escapes a value for use inside a single-quoted Drive query string. */
 const escapeQuery = (v: string) => v.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
@@ -119,14 +138,22 @@ export function toHtmlFile(doc: Pick<DocumentRecord, "title" | "contentHtml">, f
 /** The `DriveApi` used by the folder-tree sync, backed by the real Google Drive API. */
 export async function createDriveApi(userId: string): Promise<DriveApi> {
   const client = await getAuthorizedClient(userId);
-  const drive = google.drive({ version: "v3", auth: client });
+  const drive = google.drive({ version: "v3", auth: client, ...driveRoot() });
   const html = (body: string) => ({ mimeType: "text/html", body: Readable.from([body]) });
 
   return {
     async get(id) {
       try {
-        const { data } = await drive.files.get({ fileId: id, fields: "id, name, parents, trashed" });
-        return data.id ? { id: data.id, name: data.name ?? "", parents: data.parents ?? [], trashed: Boolean(data.trashed) } : null;
+        const { data } = await drive.files.get({ fileId: id, fields: "id, name, parents, trashed, version" });
+        return data.id
+          ? {
+              id: data.id,
+              name: data.name ?? "",
+              parents: data.parents ?? [],
+              trashed: Boolean(data.trashed),
+              version: Number(data.version ?? 0),
+            }
+          : null;
       } catch (err) {
         if (isNotFound(err)) return null;
         throw err;
@@ -176,24 +203,67 @@ export async function createDriveApi(userId: string): Promise<DriveApi> {
     async trash(id) {
       await drive.files.update({ fileId: id, requestBody: { trashed: true }, fields: "id" });
     },
+    async untrash(id) {
+      await drive.files.update({ fileId: id, requestBody: { trashed: false }, fields: "id" });
+    },
+    exportHtml: (id) => exportHtml(drive, id),
     async createDoc(name, parentId, body) {
-      const { data } = await drive.files.create({
-        requestBody: { name, mimeType: GOOGLE_DOC_MIME, parents: [parentId] },
-        media: html(body),
-        fields: "id",
-      });
+      const { data } = await drive.files.create(
+        { requestBody: { name, mimeType: GOOGLE_DOC_MIME, parents: [parentId] }, media: html(body), fields: "id" },
+        uploadOptions(),
+      );
       if (!data.id) throw new HttpError(502, "google_drive_error", "Google Drive did not return a file id");
       return data.id;
     },
     async updateDoc(id, name, body) {
       try {
-        await drive.files.update({ fileId: id, requestBody: { name }, media: html(body), fields: "id" });
+        await drive.files.update({ fileId: id, requestBody: { name }, media: html(body), fields: "id" }, uploadOptions());
         return true;
       } catch (err) {
         if (isNotFound(err)) return false;
         throw err;
       }
     },
+  };
+}
+
+async function exportHtml(drive: drive_v3.Drive, id: string): Promise<string> {
+  const { data } = await drive.files.export({ fileId: id, mimeType: "text/html" }, { responseType: "text" });
+  return typeof data === "string" ? data : String(data);
+}
+
+/** Drive → app: every item the app can see (drive.file: everything it created), trashed included. */
+export async function createPullApi(userId: string): Promise<PullDriveApi> {
+  const client = await getAuthorizedClient(userId);
+  const drive = google.drive({ version: "v3", auth: client, ...driveRoot() });
+  return {
+    async listAll() {
+      const out: DriveEntry[] = [];
+      let pageToken: string | undefined;
+      do {
+        const { data } = await drive.files.list({
+          q: `mimeType = '${FOLDER_MIME}' or mimeType = '${GOOGLE_DOC_MIME}'`,
+          fields: "nextPageToken, files(id, name, mimeType, parents, trashed, version)",
+          spaces: "drive",
+          pageSize: 1000,
+          pageToken,
+        });
+        for (const f of data.files ?? []) {
+          if (!f.id) continue;
+          out.push({
+            id: f.id,
+            name: f.name ?? "",
+            mimeType: f.mimeType ?? "",
+            parents: f.parents ?? [],
+            trashed: Boolean(f.trashed),
+            version: Number(f.version ?? 0),
+          });
+        }
+        pageToken = data.nextPageToken ?? undefined;
+      } while (pageToken);
+      return out;
+    },
+    exportHtml: (id) => exportHtml(drive, id),
   };
 }
 

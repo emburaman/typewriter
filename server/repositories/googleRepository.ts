@@ -82,3 +82,17 @@ export async function setFolderId(userId: string, folderId: string | null): Prom
 export async function deleteCredentials(userId: string): Promise<void> {
   await getPool().execute("DELETE FROM drive_connections WHERE user_id = ?", [userId]);
 }
+
+export async function setLastPull(userId: string): Promise<void> {
+  await getPool().execute("UPDATE drive_connections SET last_pull_at = CURRENT_TIMESTAMP WHERE user_id = ?", [userId]);
+}
+
+/** Users whose documents are mirrored to Drive (storage = Google Drive, and connected). */
+export async function usersWithDriveSync(): Promise<string[]> {
+  const [rows] = await getPool().query<RowDataPacket[]>(
+    `SELECT c.user_id FROM drive_connections c
+       JOIN user_settings s ON s.user_id = c.user_id
+      WHERE s.storage_provider = 'google_drive' AND (c.refresh_token_enc IS NOT NULL OR c.access_token_enc IS NOT NULL)`,
+  );
+  return rows.map((r) => String(r.user_id));
+}

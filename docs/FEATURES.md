@@ -67,26 +67,45 @@
 - **Server + Google Drive**: each save also uploads the document to Google Drive as a
   **Google Doc**, converted from the editor's HTML. Later saves update the same Drive file. If you
   delete it in Drive, the next save creates a new one.
-- **Folders are mirrored.** Everything lives under one Drive folder (`Olive Writer` by default),
-  and your app folders become real Drive folders inside it:
+- **Two-way sync.** Everything lives under one Drive folder (`Olive Writer` by default), with
+  your app folders as real Drive folders inside it:
 
   ```
   My Drive / Olive Writer / Novel / Chapters / Chapter One   (Google Doc)
   ```
 
-  With Drive storage on, Drive follows what you do in the Files panel right away:
-  - creating, renaming or moving a folder does the same in Drive;
-  - moving a document moves its Google Doc;
-  - deleting a folder moves its Drive contents up a level, the same as in the app, and puts the
-    emptied Drive folder in Drive's **trash**, so it can be recovered;
-  - renaming the Drive folder in Settings renames the existing folder in Drive.
-- **Self-repairing**: every save re-checks the document's folder path in Drive. Folders deleted
-  or renamed by hand in Drive are recreated or renamed back, and files are moved back where they
-  belong. The app is the source of truth.
-- **Sync everything to Drive now** (Settings → Storage) creates any missing folders, puts files in
-  the right place and uploads every document. Use it after turning Drive storage on, so writing
-  saved before then gets copied, or after changing things in Drive by hand.
-- Deleting a *document* in the app leaves its Drive copy alone.
+  | Change made in… | …shows up in the other | When |
+  |---|---|---|
+  | App: edit, rename or move a document; create, rename or move a folder | Drive | right away (auto-saves refresh Drive at most every 2 min; `Ctrl+S` immediately) |
+  | Google Docs: edit the text | App | within a minute, or as soon as you switch back to the app or open Files |
+  | Drive: rename or move a document or folder (inside the Olive Writer folder) | App | same |
+  | App: delete a document | Drive: the file goes to **Drive's trash** | right away |
+  | Drive: trash a document (or a folder) | App: it goes to the app's **Trash** | within a minute |
+  | Either side: restore from the trash | The other side restores it too | — |
+
+- **Safety rules:**
+  - **Nothing is deleted outright.** Deletions on either side go to a trash: Drive's trash, or
+    the app's Trash (Files panel, kept 30 days). Even trashing the whole Olive Writer folder in
+    Drive by mistake is fully recoverable.
+  - **Edits beat deletions.** A document edited in the app but trashed in Drive is kept and
+    re-uploaded. Saving a document that sits in the Trash brings it back.
+  - **Edited on both sides** before the sync: nothing is lost. The app keeps its version, and the
+    Google Docs version is added next to it as "<title> (Google Docs version)".
+  - **Switching to a different Google account never deletes anything.** Its Drive doesn't have
+    your files, so they're uploaded again rather than treated as deleted.
+  - Only *real* text edits are pulled. Starring, sharing or viewing a doc in Drive changes
+    nothing.
+- **What comes back from Google Docs:** text, headings, bold/italic/underline, real text
+  colors, lists, links, images, quotes, and the app's footnotes and video/audio players, which are
+  rebuilt from how they were exported. Google's default black text color is dropped so text stays
+  readable in dark mode. Google-only formatting (fonts, sizes, tables, comments, suggestions)
+  doesn't carry over, and nested lists come back flat.
+- **What Google lets the app see:** the app uses the privacy-friendly `drive.file` permission, so
+  it can only see files and folders **it created**. A brand-new Google Doc you create by hand in
+  Drive is invisible to the app and isn't imported; write new documents in the app. Docs the app
+  created, including ones restored from Drive's trash, sync fully.
+- **Sync everything to Drive now** (Settings → Storage) pulls Drive changes in, then uploads every
+  folder and document. Use it after turning Drive storage on.
 - Connect and disconnect from Settings.
 - Security: OAuth tokens are encrypted with AES-256-GCM in MySQL and never sent to the browser.
   The scope is `drive.file`, so the app can only see files it created. The OAuth flow is protected

@@ -32,7 +32,7 @@ server (MySQL) and, if you want, to Google Drive.
 | **Keyboard-first** | `Ctrl+B/I/U`, `Ctrl+1…5` for colors, `Ctrl+0` for the default color, `1. ` and `- ` start lists, `Tab` right after the bullet/number nests the item, `Ctrl+S` saves. |
 | **Fonts** | Any Google Fonts family, with a live preview. You get a curated list by default, or the full catalog if you set a Google Fonts API key. |
 | **Saving & devices** | Auto-saves to the server a few seconds after you pause (no `Ctrl+S` needed), with a browser copy for offline use. Sign in on another device and your documents are there; open documents refresh when they change elsewhere, and edits made on two devices at once are never silently overwritten (keep both / use theirs / overwrite). |
-| **Storage** | MySQL on the server, plus optional **Google Drive** sync: each save also uploads the document as a Google Doc, and your folders are mirrored as Drive folders (created, renamed, moved and deleted along with the app). |
+| **Storage** | MySQL on the server, plus optional **two-way Google Drive sync**: documents are Google Docs inside mirrored Drive folders. Edits, renames, moves and deletions go both ways, and edits made in Google Docs come back into the app. Deletions on either side go to a trash, never straight to permanent deletion. |
 | **Markdown formatting** | Headings H1–H6, quotes, horizontal lines, inline code and code blocks, external links, footnotes with two-way in-document links, images / audio / video from a URL, and embedded YouTube and Vimeo videos. Markdown typing shortcuts work (`# `, `> `, `---`, `` `code` ``, ```` ``` ````, `[text](url)`, `![alt](url)`). |
 | **Files and folders** | The Files panel shows saved documents in a tree of folders. Create, rename and delete folders, and move documents and folders by drag and drop or with "Move to…". Deleting a folder never deletes writing: its contents move up a level. |
 
@@ -205,7 +205,11 @@ npx playwright install chromium  # first time only
 # Browser tests sign in through the test-only endpoint, so run the app in test mode on a
 # throwaway database (never NODE_ENV=production; the app refuses AUTH_DEV_LOGIN there):
 npm run build
-NODE_ENV=test AUTH_DEV_LOGIN=true npm run start:test   # point DB_* at a throwaway database
+# The Drive sync tests use a fake Google Drive that the test runner starts on port 4555:
+NODE_ENV=test AUTH_DEV_LOGIN=true \
+  GOOGLE_API_ROOT_URL=http://localhost:4555/ GOOGLE_CLIENT_ID=test GOOGLE_CLIENT_SECRET=test \
+  TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32) \
+  npm run start:test   # point DB_* at a throwaway database
 npm run test:e2e                 # in another terminal
 ```
 
@@ -249,4 +253,5 @@ Avoid `docker compose down -v` for this. It also deletes the `mysql-dev-data` vo
 
 - Browsers show their own fixed wording in the "Leave site?" dialog. A page cannot add a
   "Save" button to it. Your work is still kept in the browser draft and offered back on the next visit.
-- Deleting a document removes the server copy only. Any Drive copy stays in Drive.
+- Google's `drive.file` permission only lets the app see Drive files it created. New Google Docs
+  you create by hand in Drive aren't imported.

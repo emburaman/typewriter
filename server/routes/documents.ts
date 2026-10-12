@@ -73,6 +73,27 @@ documentsRouter.post("/", async (req, res) => {
   res.status(201).location(`/api/documents/${id}`).json(result);
 });
 
+/** GET /api/documents/trash — the user's Trash, most recently deleted first. */
+documentsRouter.get("/trash", async (req, res) => {
+  res.status(200).json(await documentsRepo.listTrash(currentUser(req).id));
+});
+
+/** POST /api/documents/trash/:id/restore — back from the Trash (and from Drive's trash). */
+documentsRouter.post("/trash/:id/restore", async (req, res) => {
+  const user = currentUser(req);
+  const id = parseId(req);
+  if (!(await documentsRepo.restoreDocument(user.id, id))) throw notFound();
+  const doc = await requireDocument(user.id, id);
+  const driveWarning = await driveSync.followUp(user.id, () => driveSync.uploadDocument(user.id, doc));
+  res.status(200).json({ ...(await requireDocument(user.id, id)), driveWarning });
+});
+
+/** DELETE /api/documents/trash/:id — delete forever (only documents already in the Trash). */
+documentsRouter.delete("/trash/:id", async (req, res) => {
+  if (!(await documentsRepo.deleteForever(currentUser(req).id, parseId(req)))) throw notFound();
+  res.status(204).end();
+});
+
 /** GET /api/documents/:id */
 documentsRouter.get("/:id", async (req, res) => {
   res.status(200).json(await requireDocument(currentUser(req).id, parseId(req)));
@@ -122,9 +143,17 @@ documentsRouter.post("/:id/drive-sync", async (req, res) => {
   res.status(result.drive.status === "synced" ? 200 : 502).json(result);
 });
 
-/** DELETE /api/documents/:id — removes the server copy (the Drive copy is left untouched). */
+/**
+ * DELETE /api/documents/:id — moves the document to the Trash (restorable for 30 days) and its
+ * Drive file to Drive's trash. 204, or 200 `{ driveWarning }` if Drive couldn't be updated.
+ */
 documentsRouter.delete("/:id", async (req, res) => {
-  const deleted = await documentsRepo.deleteDocument(currentUser(req).id, parseId(req));
-  if (!deleted) throw notFound();
-  res.status(204).end();
+  const user = currentUser(req);
+  const id = parseId(req);
+  const doc = await documentsRepo.findDocument(user.id, id);
+  if (!doc || !(await documentsRepo.trashDocument(user.id, id))) throw notFound();
+  const driveFileId = doc.driveFileId;
+  const driveWarning = driveFileId ? await driveSync.followUp(user.id, () => driveSync.trashInDrive(user.id, driveFileId)) : undefined;
+  if (driveWarning) res.status(200).json({ driveWarning });
+  else res.status(204).end();
 });

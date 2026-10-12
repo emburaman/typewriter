@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { closePool, waitForDatabase } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
+import { startDriveSyncLoop } from "./services/driveSync.js";
 
 /**
  * Single-process server: Express handles /api/*, everything else is delegated to
@@ -24,6 +25,8 @@ async function main() {
   app.use((req, res) => handle(req, res));
 
   const server = createServer(app);
+  // Two-way Google Drive sync: pull Drive changes for every Drive-enabled user each minute.
+  const syncLoop = startDriveSyncLoop();
   server.listen(config.port, () => {
     console.log(`[server] Olive Writer ready on ${config.appUrl} (port ${config.port}, ${dev ? "dev" : "production"})`);
     if (!config.google.configured) {
@@ -33,6 +36,7 @@ async function main() {
 
   const shutdown = (signal: string) => {
     console.log(`[server] ${signal} received, shutting down`);
+    clearInterval(syncLoop);
     server.close(() => {
       closePool()
         .then(() => process.exit(0))

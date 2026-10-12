@@ -126,6 +126,19 @@ The chosen family is loaded with a `fonts.googleapis.com/css2` `<link>`.
   use theirs / overwrite). Open documents re-check the server when the tab regains focus, and
   every 30 s while idle. Background saves use `driveSync: "auto"`, which uploads to Drive at most
   every 2 minutes.
+* **Two-way Drive sync** (migration 007). Push: every app change goes to Drive (`driveTree.ts`),
+  and afterwards the app records Drive's file `version` and a SHA-256 of Drive's HTML export, plus
+  the app revision it uploaded. Pull (`drivePull.ts`, every minute per user, and on tab focus /
+  Files panel): one snapshot of every item the app can see. A higher Drive version with a
+  different export hash is a real Google Docs edit. A rename or move inside the tree is applied to
+  the app. Trashed in Drive means app Trash (`documents.deleted_at`), and restored means restored.
+  Edits beat deletions. Both sides edited: keep the app version and import Drive's as a copy. A
+  missing file only counts as deleted for the same Google account. Pulled content is stored as
+  HTML (`content_source = 'html'`) and converted to editor JSON in the browser
+  (`googleImport.ts`, which also rebuilds footnotes and players); that conversion save doesn't
+  count as an app edit (`sameAsDrive`). The pull engine is pure (interfaces for Drive and the
+  app's data), is unit-tested rule by rule, and is end-to-end tested against a fake Drive REST
+  server (`tests/e2e/fake-drive.ts`, enabled only by the test-only `GOOGLE_API_ROOT_URL`).
 * **Drive folder mirroring** (`server/services/driveTree.ts`): each app folder caches its Drive
   folder id (`folders.drive_folder_id`, migration 004). Every operation re-checks the Drive side
   (exists, not trashed, right name, right parent) and repairs it, so failed or partial syncs and
