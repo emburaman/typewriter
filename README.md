@@ -69,21 +69,27 @@ docker compose down -v              # stop and wipe the dev database
 
 ## Production deployment
 
-1. On the server, edit **`.env.production`**:
-   - replace every `CHANGE_ME…` value with a strong password (`openssl rand -base64 24`);
+1. On the server, create **`.env.production`** (not tracked by git) from the example,
+   `cp .env.example .env.production`, and edit it:
+   - replace every `change-me…` value with a strong password (`openssl rand -base64 24`);
    - set `APP_URL` to the public URL users will visit (for example `https://write.example.com`);
    - optionally fill in the Google variables ([Google Drive setup](#google-drive-setup)).
-   Keep real secrets out of git. You can also put them in `.env.production.local`, which is ignored.
+   - keep `DB_PORT=3306` (the compose file sets `DB_HOST=db`), and make `MYSQL_PASSWORD` equal
+     to `DB_PASSWORD` (the database container creates that user).
 2. Build and start:
 
    ```bash
    docker compose -f docker-compose.prod.yml up -d --build
    ```
 
+   The app is published on host port **7400**. To use another one, create a file named **`.env`**
+   next to `docker-compose.prod.yml` containing, for example, `HOST_PORT=8080`. It's not tracked
+   by git, so pulls never change it. Inside the container the app always listens on 4000, whatever
+   `PORT` says in `.env.production`.
 3. Check it:
 
    ```bash
-   curl http://localhost:4000/api/health      # {"status":"ok","database":"up"}
+   curl http://localhost:7400/api/health      # (or your HOST_PORT) {"status":"ok","database":"up"}
    docker compose -f docker-compose.prod.yml ps   # app should report "healthy"
    ```
 
@@ -93,7 +99,7 @@ What the production stack does:
   `tsc`. It removes dev dependencies and runs as the unprivileged `node` user.
 - MySQL is not published to the host. Its data lives in the `mysql-data` volume.
 - Both containers use `restart: unless-stopped`, and the app has a Docker `HEALTHCHECK` on `/api/health`.
-- The app listens on **port 4000**. Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik) in
+- The app is published on host **port 7400** (or `HOST_PORT`). Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik) in
   front of it for HTTPS. Google OAuth requires HTTPS for any host other than `localhost`.
 
 Updating: `git pull && docker compose -f docker-compose.prod.yml up -d --build`. New migrations
@@ -248,6 +254,13 @@ docker compose up --build
 Avoid `docker compose down -v` for this. It also deletes the `mysql-dev-data` volume, which holds your documents.
 
 **Running on the host (`npm run dev`)** after pulling new code: run `npm install` first.
+
+**502 Bad Gateway from the reverse proxy, and `curl http://localhost:<port>/api/health` returns
+nothing.** The app isn't reachable on the host port the proxy uses. Check
+`docker compose -f docker-compose.prod.yml ps -a`: an app container that is `Created` but not
+running usually means its host port is taken ("port is already allocated" when you run `up`). Set
+`HOST_PORT` in `.env` (see [Production deployment](#production-deployment)) to the port your proxy
+points at, then `up -d` again.
 
 **`[drive] … invalid_grant` / "Token has been expired or revoked" in the logs.** Google refused
 the stored Drive connection. Your writing is still saved on the server; only Drive syncing stops.
