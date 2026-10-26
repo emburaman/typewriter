@@ -5,29 +5,52 @@ import { insertFootnote } from "./footnotes";
 export interface TypewriterKeymapOptions {
   /** Returns the current toolbar palette (read lazily so settings changes apply immediately). */
   getColors: () => string[];
+  /** Returns the current highlight palette (read lazily, like getColors). */
+  getHighlights: () => string[];
   /** Opens the link dialog (Ctrl/Cmd+K). */
   onLinkShortcut: () => void;
 }
 
+/** The two attributes this app stores in the `textStyle` mark. */
+type StyleAttr = "color" | "backgroundColor";
+
 /**
- * Returns text to the default color. Color is the only attribute this app stores in
- * `textStyle`, so the whole mark is removed — `unsetColor()` would leave an empty
- * stored mark behind at a collapsed cursor, producing bare `<span>`s in the HTML.
+ * Removes one textStyle attribute (text color or highlight) and keeps the other. When nothing
+ * else is left at a collapsed cursor the whole mark goes: `unsetColor()` would leave an empty
+ * stored mark behind there, producing bare `<span>`s in the HTML.
  */
-export function clearColor(editor: Editor): boolean {
-  return editor.chain().focus().unsetMark("textStyle").run();
+function clearStyleAttr(editor: Editor, attr: StyleAttr): boolean {
+  const other: StyleAttr = attr === "color" ? "backgroundColor" : "color";
+  if (editor.state.selection.empty && !editor.getAttributes("textStyle")[other]) {
+    return editor.chain().focus().unsetMark("textStyle").run();
+  }
+  return editor.chain().focus().setMark("textStyle", { [attr]: null }).removeEmptyTextStyle().run();
 }
+
+/** Toggles palette entry `index` for `attr`: applying the active color again removes it. */
+function togglePaletteStyle(editor: Editor, attr: StyleAttr, palette: string[], index: number): boolean {
+  const value = palette[index];
+  if (!value) return false;
+  if (editor.isActive("textStyle", { [attr]: value })) return clearStyleAttr(editor, attr);
+  return editor.chain().focus().setMark("textStyle", { [attr]: value }).run();
+}
+
+/** Returns text to the default color (a highlight stays). */
+export const clearColor = (editor: Editor) => clearStyleAttr(editor, "color");
+
+/** Removes the highlight (the text color stays). */
+export const clearHighlight = (editor: Editor) => clearStyleAttr(editor, "backgroundColor");
 
 /**
  * Toggles palette color `index` on the selection / stored marks. Pressing the shortcut
  * for the color that is already active returns the text to the default color.
  */
-export function applyPaletteColor(editor: Editor, colors: string[], index: number): boolean {
-  const color = colors[index];
-  if (!color) return false;
-  if (editor.isActive("textStyle", { color })) return clearColor(editor);
-  return editor.chain().focus().setColor(color).run();
-}
+export const applyPaletteColor = (editor: Editor, colors: string[], index: number) =>
+  togglePaletteStyle(editor, "color", colors, index);
+
+/** Toggles highlight color `index`, like applyPaletteColor. */
+export const applyHighlight = (editor: Editor, highlights: string[], index: number) =>
+  togglePaletteStyle(editor, "backgroundColor", highlights, index);
 
 /**
  * Tab behaviour for a typewriter:
@@ -52,7 +75,7 @@ export const TypewriterKeymap = Extension.create<TypewriterKeymapOptions>({
   priority: 1000,
 
   addOptions() {
-    return { getColors: () => [], onLinkShortcut: () => undefined };
+    return { getColors: () => [], getHighlights: () => [], onLinkShortcut: () => undefined };
   },
 
   addKeyboardShortcuts() {
@@ -70,12 +93,19 @@ export const TypewriterKeymap = Extension.create<TypewriterKeymapOptions>({
       "Mod-Alt-f": ({ editor }) => insertFootnote(editor),
       "Mod-0": ({ editor }) => clearColor(editor),
       "Alt-0": ({ editor }) => clearColor(editor),
+      "Mod-Shift-0": ({ editor }) => clearHighlight(editor),
+      "Alt-Shift-0": ({ editor }) => clearHighlight(editor),
     };
     for (let i = 1; i <= MAX_TOOLBAR_COLORS; i++) {
       const run: KeyboardShortcutCommand = ({ editor }) => applyPaletteColor(editor, this.options.getColors(), i - 1);
       // Mod = Ctrl on Windows/Linux, Cmd on macOS. Alt is a fallback for browsers that reserve Ctrl+digit.
       shortcuts[`Mod-${i}`] = run;
       shortcuts[`Alt-${i}`] = run;
+      // Highlights: the same with Shift (ProseMirror matches Shift+digit by key code, not "!" etc.).
+      const highlight: KeyboardShortcutCommand = ({ editor }) =>
+        applyHighlight(editor, this.options.getHighlights(), i - 1);
+      shortcuts[`Mod-Shift-${i}`] = highlight;
+      shortcuts[`Alt-Shift-${i}`] = highlight;
     }
     return shortcuts;
   },

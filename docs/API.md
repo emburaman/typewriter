@@ -93,6 +93,7 @@ interface Settings {
   fontFamily: string;          // Google Fonts family: letters, digits, spaces (≤100)
   fontSize: number;            // 12–32 (px)
   toolbarColors: string[];     // 1–5 colors, "#rrggbb"
+  highlightColors: string[];   // 1–5 highlight colors, "#rrggbb"
   storageProvider: "server" | "google_drive";
   driveFolderName: string;     // 1–255 chars
 }

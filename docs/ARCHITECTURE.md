@@ -9,9 +9,9 @@ A distraction-free "typewriter" writing app, running in Docker, with:
 
 1. Clean UI with light / dark / system theme.
 2. Settings section to configure storage (Google Drive API).
-3. Simple formatting — bold, italic, underline, a configurable palette of up to 5 font colors,
+3. Simple formatting — bold, italic, underline, configurable palettes of up to 5 font colors and 5 highlight colors,
    bulleted and numbered lists — plus a configurable Google Font face.
-4. Keyboard-first: `Ctrl+B/I/U`, `Ctrl+1…5` for colors, Markdown-like list triggers
+4. Keyboard-first: `Ctrl+B/I/U`, `Ctrl+1…5` for colors, `Ctrl+Shift+1…5` for highlights, Markdown-like list triggers
    (`1. ` and `- `), `Tab` / `Shift+Tab` to nest / un-nest list items.
 5. Auto-save to the browser every 5 seconds; warn before closing with unsaved server changes.
 

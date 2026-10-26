@@ -9,7 +9,7 @@ afterEach(() => editor?.destroy());
 
 /** What the editor ends up with after loading a Google Docs export. */
 function load(googleHtml: string): string {
-  editor = new Editor({ extensions: createExtensions(() => []), content: normalizeGoogleDocsHtml(googleHtml) });
+  editor = new Editor({ extensions: createExtensions({ getColors: () => [] }), content: normalizeGoogleDocsHtml(googleHtml) });
   return editor.getHTML();
 }
 
@@ -53,6 +53,14 @@ describe("normalizeGoogleDocsHtml", () => {
 
   it("turns exported player links back into players", () => {
     expect(load(GOOGLE)).toContain('src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"');
+  });
+
+  it("keeps highlights but not Google's white or transparent backgrounds", () => {
+    const html = load(
+      '<p><span style="background-color:#fff176;color:#000000">marked</span><span style="background-color:#ffffff"> white</span><span style="background-color:transparent"> none</span></p>',
+    );
+    expect(html).toMatch(/<span style="background-color: (rgb\(255, 241, 118\)|#fff176);?">marked<\/span>/);
+    expect(html).toContain("> white none</p>");
   });
 
   it("leaves ordinary HTML alone", () => {

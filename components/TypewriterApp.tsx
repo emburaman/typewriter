@@ -61,17 +61,20 @@ export function TypewriterApp() {
   const { play } = useSound();
   const toast = useToast();
 
-  // Palette is read lazily by the Ctrl+1…5 shortcuts so settings changes apply instantly.
+  // Palettes are read lazily by the Ctrl+(Shift+)1…5 shortcuts so settings changes apply instantly.
   const colorsRef = useRef(settings.toolbarColors);
   colorsRef.current = settings.toolbarColors;
+  const highlightsRef = useRef(settings.highlightColors);
+  highlightsRef.current = settings.highlightColors;
   const [linkOpen, setLinkOpen] = useState(false);
   const [mediaOpen, setMediaOpen] = useState(false);
   const extensions = useMemo(
     () =>
-      createExtensions(
-        () => colorsRef.current,
-        () => setLinkOpen(true),
-      ),
+      createExtensions({
+        getColors: () => colorsRef.current,
+        getHighlights: () => highlightsRef.current,
+        onLinkShortcut: () => setLinkOpen(true),
+      }),
     [],
   );
 
@@ -617,7 +620,8 @@ export function TypewriterApp() {
   const scheduleToolbarHide = useCallback(() => {
     window.clearTimeout(toolbarHideTimer.current);
     toolbarHideTimer.current = window.setTimeout(function hide() {
-      if (headRef.current?.matches(":hover, :focus-within")) {
+      // Not while it's being used: pointed at, focused, or with a color menu open.
+      if (headRef.current?.matches(":hover, :focus-within, :has(.palette-menu)")) {
         toolbarHideTimer.current = window.setTimeout(hide, TOOLBAR_HIDE_MS);
         return;
       }
@@ -742,6 +746,8 @@ export function TypewriterApp() {
             <Toolbar
               editor={editor}
               colors={settings.toolbarColors}
+              highlights={settings.highlightColors}
+              shown={toolbarShown}
               onLink={() => setLinkOpen(true)}
               onMedia={() => setMediaOpen(true)}
             />

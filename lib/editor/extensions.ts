@@ -1,7 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 import type { EditorJson } from "@/lib/shared/schemas";
 import StarterKit from "@tiptap/starter-kit";
-import { Color, TextStyle } from "@tiptap/extension-text-style";
+import { BackgroundColor, Color, TextStyle } from "@tiptap/extension-text-style";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import { Footnote, FootnoteReference, Footnotes } from "./footnotes";
@@ -10,7 +10,7 @@ import { MediaFile, VideoEmbed } from "./mediaNodes";
 import { TypewriterKeymap } from "./typewriterKeymap";
 
 /**
- * Formatting surface: bold, italic, underline, inline code, palette colors, links,
+ * Formatting surface: bold, italic, underline, inline code, palette colors and highlights, links,
  * headings H1–H6, bulleted / numbered lists, blockquotes, code blocks, horizontal lines,
  * footnotes, images, audio/video files and YouTube/Vimeo embeds.
  *
@@ -19,7 +19,16 @@ import { TypewriterKeymap } from "./typewriterKeymap";
  *   `code` inline code · "---" horizontal line · **bold** · *italic* ·
  *   ![alt](url) image · [text](url) link (ours, see links.ts)
  */
-export function createExtensions(getColors: () => string[], onLinkShortcut: () => void = () => undefined) {
+export interface ExtensionOptions {
+  /** Text color palette (Ctrl+1…5), read lazily so settings changes apply immediately. */
+  getColors: () => string[];
+  /** Highlight palette (Ctrl+Shift+1…5), read lazily too. */
+  getHighlights?: () => string[];
+  /** Opens the link dialog (Ctrl+K). */
+  onLinkShortcut?: () => void;
+}
+
+export function createExtensions({ getColors, getHighlights = () => [], onLinkShortcut = () => undefined }: ExtensionOptions) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4, 5, 6] },
@@ -35,6 +44,7 @@ export function createExtensions(getColors: () => string[], onLinkShortcut: () =
     }),
     TextStyle,
     Color,
+    BackgroundColor, // highlights: background-color on the same <span>, as Google Docs does
     Image.configure({ allowBase64: false, HTMLAttributes: { loading: "lazy", referrerpolicy: "no-referrer" } }),
     VideoEmbed,
     MediaFile,
@@ -43,7 +53,7 @@ export function createExtensions(getColors: () => string[], onLinkShortcut: () =
     Footnote,
     LinkExtras,
     Placeholder.configure({ placeholder: "Start typing…" }),
-    TypewriterKeymap.configure({ getColors, onLinkShortcut }),
+    TypewriterKeymap.configure({ getColors, getHighlights, onLinkShortcut }),
   ];
 }
 

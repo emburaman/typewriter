@@ -3,6 +3,7 @@ import { Editor } from "@tiptap/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { createExtensions } from "../../lib/editor/extensions";
 import { insertFootnote } from "../../lib/editor/footnotes";
+import { applyHighlight, applyPaletteColor, clearColor, clearHighlight } from "../../lib/editor/typewriterKeymap";
 
 let editor: Editor | null = null;
 afterEach(() => {
@@ -11,7 +12,7 @@ afterEach(() => {
 });
 
 function make(content = "<p></p>") {
-  editor = new Editor({ extensions: createExtensions(() => ["#d64541"]), content });
+  editor = new Editor({ extensions: createExtensions({ getColors: () => ["#d64541"], getHighlights: () => ["#fff176"] }), content });
   return editor;
 }
 
@@ -127,5 +128,50 @@ describe("paragraph count", () => {
     insertFootnote(e);
     e.commands.insertContent("a note");
     expect(countParagraphs(e.state.doc)).toBe(6);
+  });
+});
+
+describe("text colors and highlights", () => {
+  const selectAll = (e: Editor) => e.commands.setTextSelection({ from: 1, to: e.state.doc.content.size - 1 });
+  /** HTML with jsdom's rgb() colors written back as hex. */
+  const html = (e: Editor) =>
+    e.getHTML().replace(/rgb\((\d+), (\d+), (\d+)\)/g, (_m, ...c: string[]) =>
+      "#" + c.slice(0, 3).map((v) => Number(v).toString(16).padStart(2, "0")).join(""),
+    );
+
+  it("highlights the selection, keeping its text color, and toggles off", () => {
+    const e = make("<p>word</p>");
+    selectAll(e);
+    applyPaletteColor(e, ["#d64541"], 0);
+    applyHighlight(e, ["#fff176"], 0);
+    expect(html(e)).toBe('<p><span style="color: #d64541; background-color: #fff176;">word</span></p>');
+    applyHighlight(e, ["#fff176"], 0); // same color again removes it
+    expect(html(e)).toBe('<p><span style="color: #d64541;">word</span></p>');
+  });
+
+  it("removing one keeps the other, and removing both leaves no empty span", () => {
+    const e = make("<p>word</p>");
+    selectAll(e);
+    applyPaletteColor(e, ["#d64541"], 0);
+    applyHighlight(e, ["#fff176"], 0);
+    clearColor(e);
+    expect(html(e)).toBe('<p><span style="background-color: #fff176;">word</span></p>');
+    clearHighlight(e);
+    expect(html(e)).toBe("<p>word</p>");
+  });
+
+  it("ignores palette positions that don't exist", () => {
+    const e = make("<p>word</p>");
+    selectAll(e);
+    expect(applyHighlight(e, ["#fff176"], 3)).toBe(false);
+    expect(html(e)).toBe("<p>word</p>");
+  });
+
+  it("Ctrl+Shift+1 highlights with highlight color 1", () => {
+    const e = make("<p>word</p>");
+    selectAll(e);
+    const event = new KeyboardEvent("keydown", { key: "!", code: "Digit1", keyCode: 49, ctrlKey: true, shiftKey: true });
+    e.view.someProp("handleKeyDown", (f) => f(e.view, event));
+    expect(html(e)).toBe('<p><span style="background-color: #fff176;">word</span></p>');
   });
 });

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const DEFAULT_COLORS = ["#d64541", "#2e86de", "#27ae60", "#e67e22", "#9b59b6"];
+const DEFAULT_HIGHLIGHTS = ["#fff176", "#c5e1a5", "#b3e5fc", "#f8bbd0", "#ffcc80"];
 
 /** Opens the app on a brand-new document (the app itself reopens the most recent one). */
 async function openEditor(page: Page) {
@@ -22,7 +23,7 @@ const showToolbar = async (page: Page) => {
 };
 
 test.beforeEach(async ({ request }) => {
-  await request.put("/api/settings", { data: { theme: "system", toolbarColors: DEFAULT_COLORS } });
+  await request.put("/api/settings", { data: { theme: "system", toolbarColors: DEFAULT_COLORS, highlightColors: DEFAULT_HIGHLIGHTS } });
 });
 
 test("bold, italic and underline shortcuts", async ({ page }) => {
@@ -438,30 +439,91 @@ test("status bar shows paragraph, line and word counts; lines follow wrapping", 
   await expect.poll(lines).toBeGreaterThan(wide);
 });
 
-test("swatch 0 sits before color 1, shows the theme's text color and resets the color", async ({ page }) => {
+test("text color dropdown: swatch 0 shows the theme's text color and resets the color", async ({ page }) => {
   await openEditor(page);
+  const openColors = () => page.getByRole("button", { name: "Text color", exact: true }).click();
   const swatches = page.locator('[aria-label="Font colors"] .swatch');
+  await expect(swatches).toHaveCount(0); // closed until opened
+  await openColors();
+  await expect(swatches).toHaveCount(6);
   await expect(swatches.first()).toHaveAttribute("aria-label", "Default text color");
   await expect(swatches.nth(1)).toHaveAttribute("aria-label", /^Color 1/);
-  await expect(page.locator(".toolbar svg + svg")).toHaveCount(0); // eraser icon is gone
 
   const swatchColor = () => swatches.first().evaluate((el) => getComputedStyle(el).backgroundColor);
   const textColor = () => page.locator(".editor-content").evaluate((el) => getComputedStyle(el).color);
   expect(await swatchColor()).toBe(await textColor());
+  await page.keyboard.press("Escape");
+  await expect(swatches).toHaveCount(0);
 
+  await page.locator(".editor-content").click();
   await page.keyboard.press("ControlOrMeta+2");
   await page.keyboard.type("blue");
-  await expect(swatches.first()).toHaveAttribute("aria-pressed", "false");
   await showToolbar(page);
+  await openColors();
+  await expect(swatches.first()).toHaveAttribute("aria-pressed", "false");
+  await expect(swatches.nth(2)).toHaveAttribute("aria-pressed", "true");
   await swatches.first().click();
+  await expect(swatches).toHaveCount(0); // picking closes the menu
   await page.keyboard.type(" plain");
-  await expect(swatches.first()).toHaveAttribute("aria-pressed", "true");
   expect(await editorHtml(page)).toMatch(/blue<\/span> plain/);
 
   await page.locator('button[aria-label^="Theme"]').click(); // system → light
   await page.locator('button[aria-label^="Theme"]').click(); // light → dark
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await showToolbar(page);
+  await openColors();
   expect(await swatchColor()).toBe(await textColor());
+});
+
+test("highlights: Ctrl+Shift+n and the highlight dropdown, with colors from Settings", async ({ page, request }) => {
+  await request.put("/api/settings", { data: { theme: "dark", highlightColors: ["#fff176", "#b3e5fc"] } });
+  await openEditor(page);
+  await page.keyboard.type("one two");
+  const html = () => editorHtml(page);
+
+  // Select "two", Ctrl+Shift+2 → highlight color 2; again → removed.
+  await page.keyboard.press("Shift+ArrowLeft");
+  await page.keyboard.press("Shift+ArrowLeft");
+  await page.keyboard.press("Shift+ArrowLeft");
+  await page.keyboard.press("ControlOrMeta+Shift+2");
+  await expect.poll(html).toMatch(/one <span style="background-color: (#b3e5fc|rgb\(179, 229, 252\));?">two<\/span>/);
+  await page.keyboard.press("ControlOrMeta+Shift+2");
+  await expect.poll(html).toBe("<p>one two</p>");
+
+  // A text color and a highlight live together; Ctrl+Shift+0 removes only the highlight.
+  await page.keyboard.press("ControlOrMeta+1");
+  await page.keyboard.press("ControlOrMeta+Shift+1");
+  await expect.poll(html).toMatch(/<span style="color: [^;]+; background-color: [^"]+">two<\/span>/);
+  await page.keyboard.press("ControlOrMeta+Shift+0");
+  await expect.poll(html).toMatch(/<span style="color: [^;"]+;?">two<\/span>/);
+  await page.keyboard.press("ControlOrMeta+0");
+  await expect.poll(html).toBe("<p>one two</p>");
+
+  // The dropdown lists "No highlight" plus the palette from Settings.
+  await showToolbar(page);
+  await page.getByRole("button", { name: "Highlight", exact: true }).click();
+  const menu = page.getByRole("group", { name: "Highlight colors" });
+  await expect(menu.locator(".swatch")).toHaveCount(3);
+  await menu.getByRole("button", { name: /^Highlight 1/ }).click();
+  await expect.poll(html).toMatch(/<span style="background-color: (#fff176|rgb\(255, 241, 118\));?">two<\/span>/);
+  // Highlighted text is drawn dark, even in the dark theme.
+  const mark = page.locator('.editor-content span[style*="background-color"]');
+  await expect(mark).toHaveCSS("color", "rgb(44, 42, 31)");
+  await showToolbar(page);
+  await page.getByRole("button", { name: "Highlight", exact: true }).click();
+  await expect(menu.getByRole("button", { name: /^Highlight 1/ })).toHaveAttribute("aria-pressed", "true");
+  await menu.getByRole("button", { name: "No highlight" }).click();
+  await expect.poll(html).toBe("<p>one two</p>");
+
+  // Settings: the highlight palette has its own section, capped at 5.
+  await page.goto("/settings");
+  const section = page.getByRole("region", { name: "Highlight colors" });
+  await expect(section.getByLabel("Highlight color 2", { exact: true })).toHaveValue("#b3e5fc");
+  await section.getByRole("button", { name: "Add highlight color" }).click();
+  await expect.poll(async () => (await (await request.get("/api/settings")).json()).highlightColors.length).toBe(3);
+  await section.getByRole("button", { name: "Reset to defaults" }).click();
+  await expect.poll(async () => (await (await request.get("/api/settings")).json()).highlightColors.length).toBe(5);
+  await expect(section.getByRole("button", { name: "Add highlight color" })).toBeDisabled();
 });
 
 test("Trash: delete moves to the Trash with Undo; documents can be restored or deleted forever", async ({ page, request }) => {

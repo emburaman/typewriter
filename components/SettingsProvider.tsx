@@ -25,7 +25,8 @@ function readMirror(): Settings {
   try {
     const raw = window.localStorage.getItem(settingsKey());
     if (!raw) return DEFAULT_SETTINGS;
-    const parsed = settingsSchema.safeParse(JSON.parse(raw));
+    // Defaults first, so a copy saved before a setting existed still keeps its theme.
+    const parsed = settingsSchema.safeParse({ ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as object) });
     return parsed.success ? parsed.data : DEFAULT_SETTINGS;
   } catch (err) {
     console.warn("[settings] could not read local settings mirror:", err);

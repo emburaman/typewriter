@@ -130,8 +130,10 @@ See the README for the Google Cloud setup.
 | Bold | **B** | `Ctrl+B` |
 | Italic | *I* | `Ctrl+I` |
 | Underline | U | `Ctrl+U` |
-| Font color *n* (1–5) | colored dots, numbered | `Ctrl+n` (fallback `Alt+n`). Press it again to go back to the default color. |
-| Default color | swatch **0**, left of color 1, filled with the theme's text color | `Ctrl+0` |
+| Font color *n* (1–5) | **A** dropdown (the bar under the A shows the current color), numbered swatches | `Ctrl+n` (fallback `Alt+n`). Press it again to go back to the default color. |
+| Default color | swatch **0** in the **A** dropdown, filled with the theme's text color | `Ctrl+0` |
+| Highlight *n* (1–5) | highlighter dropdown, numbered swatches | select the text, then `Ctrl+Shift+n` (fallback `Alt+Shift+n`). Press it again to remove it. |
+| No highlight | swatch **0** (crossed out) in the highlighter dropdown | `Ctrl+Shift+0` |
 | Bulleted list | • list | type `- ` at the start of a line (`* ` and `+ ` also work) |
 | Numbered list | 1. list | type `1. ` at the start of a line. Any number works: `3. ` starts the list at 3. |
 | Nest list item | — | `Tab` right after the bullet or number (or with text selected in a list) |
@@ -175,14 +177,23 @@ Other details:
 - **Tab** anywhere else inserts a real tab character, like a typewriter, and doesn't move focus.
   Press `Esc` to move keyboard focus out of the editor.
 - Nested numbered lists use 1 → a → i. Nested bulleted lists use • → ◦ → ▪.
+- **Highlights** work like font colors: on a selection, or (with nothing selected) on the text you
+  type next. A text color and a highlight can be combined, and removing one keeps the other.
+  Highlighted text is always drawn dark, so the light marker colors stay readable in the dark
+  theme too (a font color you applied still wins). Highlights are kept in Google Drive copies,
+  and highlights added in Google Docs come back into the app.
+- On macOS, `⌘+Shift+3/4/5` are taken by the system for screenshots: use `⌥+Shift+n` or the
+  toolbar for those highlights.
 
-### 3.1 Toolbar colors (Settings → Toolbar colors)
+### 3.1 Text and highlight colors (Settings → Text colors, Highlight colors)
 
-- Between 1 and 5 colors. The *n*th color is the one `Ctrl+n` applies.
+- Two palettes, each with between 1 and 5 colors. The *n*th text color is the one `Ctrl+n`
+  applies; the *n*th highlight color is the one `Ctrl+Shift+n` applies.
 - Each color can be changed with a color picker, moved up or down (which changes its shortcut
   number), or removed. You can also reset to the defaults.
-- The default palette uses mid-tone colors (red, blue, green, orange, purple) that stay readable
-  in both light and dark themes.
+- The default text palette uses mid-tone colors (red, blue, green, orange, purple) that stay
+  readable in both light and dark themes. The default highlights are light marker shades (yellow,
+  green, blue, pink, orange); each row shows a sample of highlighted text.
 
 ### 3.2 Font face (Settings → Appearance)
 

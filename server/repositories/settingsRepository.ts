@@ -7,6 +7,7 @@ interface SettingsRow extends RowDataPacket {
   font_family: string;
   font_size: number;
   toolbar_colors: unknown;
+  highlight_colors: unknown;
   storage_provider: Settings["storageProvider"];
   drive_folder_name: string;
 }
@@ -18,6 +19,7 @@ function rowToSettings(row: SettingsRow): Settings {
     fontFamily: row.font_family,
     fontSize: row.font_size,
     toolbarColors: row.toolbar_colors,
+    highlightColors: row.highlight_colors ?? DEFAULT_SETTINGS.highlightColors,
     storageProvider: row.storage_provider,
     driveFolderName: row.drive_folder_name,
   });
@@ -31,7 +33,7 @@ function rowToSettings(row: SettingsRow): Settings {
 /** A user's settings (defaults until they change something). */
 export async function getSettings(userId: string): Promise<Settings> {
   const [rows] = await getPool().execute<SettingsRow[]>(
-    `SELECT theme, font_family, font_size, toolbar_colors, storage_provider, drive_folder_name
+    `SELECT theme, font_family, font_size, toolbar_colors, highlight_colors, storage_provider, drive_folder_name
        FROM user_settings WHERE user_id = ?`,
     [userId],
   );
@@ -44,6 +46,7 @@ const COLUMN_BY_FIELD = {
   fontFamily: "font_family",
   fontSize: "font_size",
   toolbarColors: "toolbar_colors",
+  highlightColors: "highlight_colors",
   storageProvider: "storage_provider",
   driveFolderName: "drive_folder_name",
 } as const satisfies Record<keyof Settings, string>;
@@ -53,7 +56,10 @@ export async function updateSettings(userId: string, update: SettingsUpdate): Pr
   const merged: Settings = { ...(await getSettings(userId)), ...update };
   const fields = Object.keys(COLUMN_BY_FIELD) as (keyof Settings)[];
   const columns = fields.map((f) => COLUMN_BY_FIELD[f]);
-  const values = fields.map((f) => (f === "toolbarColors" ? JSON.stringify(merged[f]) : merged[f]));
+  const values = fields.map((f) => {
+    const value = merged[f];
+    return Array.isArray(value) ? JSON.stringify(value) : value; // JSON columns: the color palettes
+  });
 
   await getPool().execute<ResultSetHeader>(
     `INSERT INTO user_settings (user_id, ${columns.join(", ")})

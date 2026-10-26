@@ -5,7 +5,7 @@ import { parseVideoUrl } from "./media";
  * Google's conversion does to the app's documents:
  *  - links wrapped in https://www.google.com/url?q=… redirects are unwrapped;
  *  - default black text color (which would be unreadable in dark mode), fonts and sizes are
- *    dropped; real colors are kept, and links lose Google's blue/underline styling;
+ *    dropped; real colors and highlights are kept, and links lose Google's blue/underline styling;
  *  - Google's footnotes ([1] links + a list at the end) become the app's footnotes;
  *  - "▶ Video: <link>" / "▶ Audio: <link>" lines (how the app exports players) become players again.
  * Runs in the browser (DOMParser). Anything Google-only (fonts, tables…) degrades gracefully.
@@ -21,17 +21,20 @@ export function normalizeGoogleDocsHtml(html: string): string {
     if (real) a.setAttribute("href", real);
   });
 
-  // 2. Styles: keep only meaningful text colors; links keep no styling of their own.
+  // 2. Styles: keep only meaningful text colors and highlights; links keep no styling of their own.
   body.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
     // Google styles links on the span inside OR around the <a>; either way it's link styling.
     const isLinkStyling = Boolean(el.closest("a") || el.querySelector("a"));
     const color = el.style.color;
     const keep = color && !isDefaultTextColor(color) && !isLinkStyling ? `color: ${color}` : "";
+    const background = el.style.backgroundColor;
+    const highlight = background && !isNoHighlight(background) ? `background-color: ${background}` : "";
     const weight = el.style.fontWeight;
     const italic = el.style.fontStyle === "italic";
     const underline = /underline/.test(el.style.textDecoration) && !isLinkStyling;
     const styles = [
       keep,
+      highlight,
       weight && /^(bold|[6-9]00)$/.test(weight) ? "font-weight: 700" : "",
       italic ? "font-style: italic" : "",
       underline ? "text-decoration: underline" : "",
@@ -104,6 +107,12 @@ function googleRedirectTarget(href: string): string | null {
     return null; // relative or malformed: leave as is
   }
   return null;
+}
+
+/** Google writes these for text without a highlight. */
+function isNoHighlight(color: string): boolean {
+  const c = color.replace(/\s+/g, "").toLowerCase();
+  return ["transparent", "#ffffff", "#fff", "white", "rgb(255,255,255)", "rgba(0,0,0,0)", "initial", "inherit"].includes(c);
 }
 
 /** Black / near-black: Google's default text color, not a choice the writer made. */

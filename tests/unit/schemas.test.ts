@@ -22,6 +22,14 @@ describe("settings schema", () => {
     expect(settingsUpdateSchema.safeParse({ toolbarColors: [] }).success).toBe(false);
   });
 
+  it("caps highlight colors at 5, like toolbar colors", () => {
+    const six = ["#000000", "#111111", "#222222", "#333333", "#444444", "#555555"];
+    expect(settingsUpdateSchema.safeParse({ highlightColors: six }).success).toBe(false);
+    expect(settingsUpdateSchema.safeParse({ highlightColors: six.slice(0, 5) }).success).toBe(true);
+    expect(settingsUpdateSchema.safeParse({ highlightColors: [] }).success).toBe(false);
+    expect(settingsUpdateSchema.safeParse({ highlightColors: ["yellow"] }).success).toBe(false);
+  });
+
   it("rejects non-hex colors", () => {
     expect(settingsUpdateSchema.safeParse({ toolbarColors: ["red"] }).success).toBe(false);
     expect(settingsUpdateSchema.safeParse({ toolbarColors: ["#fff"] }).success).toBe(false);

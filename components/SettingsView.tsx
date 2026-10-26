@@ -16,6 +16,7 @@ import {
 import { useGoogleFont } from "@/lib/hooks/useGoogleFont";
 import {
   CURATED_FONTS,
+  DEFAULT_HIGHLIGHT_COLORS,
   DEFAULT_TOOLBAR_COLORS,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -64,7 +65,8 @@ export function SettingsView() {
       </header>
       {!loaded && <p className="muted">Loading settings…</p>}
       <AppearanceSection settings={settings} save={save} />
-      <ColorsSection settings={settings} save={save} />
+      <ColorsSection kind="text" settings={settings} save={save} />
+      <ColorsSection kind="highlight" settings={settings} save={save} />
       <AccountSection />
       <StorageSection settings={settings} save={save} />
       {user?.role === "admin" && <UsersSection />}
@@ -186,16 +188,50 @@ function AppearanceSection({ settings, save }: { settings: Settings; save: SaveF
 
 /* ---------------------------------------------------------------- */
 
-function ColorsSection({ settings, save }: { settings: Settings; save: SaveFn }) {
-  const [colors, setColors] = useState(settings.toolbarColors);
+const PALETTES = {
+  text: {
+    field: "toolbarColors",
+    title: "Text colors",
+    noun: "color",
+    defaults: DEFAULT_TOOLBAR_COLORS,
+    added: "#555555",
+    hint: (
+      <>
+        Position <em>n</em> is applied with <kbd>Ctrl</kbd>+<kbd>n</kbd> (or <kbd>Alt</kbd>+<kbd>n</kbd>);{" "}
+        <kbd>Ctrl</kbd>+<kbd>0</kbd> resets to the default text color.
+      </>
+    ),
+  },
+  highlight: {
+    field: "highlightColors",
+    title: "Highlight colors",
+    noun: "highlight color",
+    defaults: DEFAULT_HIGHLIGHT_COLORS,
+    added: "#e0e0e0",
+    hint: (
+      <>
+        Select text, then position <em>n</em> is applied with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>n</kbd> (or{" "}
+        <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>n</kbd>); <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>0</kbd> removes the
+        highlight. Light shades work best: highlighted text is shown dark in both themes.
+      </>
+    ),
+  },
+} as const;
+
+/** Edits one palette (text colors or highlights): up to MAX_TOOLBAR_COLORS, reorderable. */
+function ColorsSection({ kind, settings, save }: { kind: keyof typeof PALETTES; settings: Settings; save: SaveFn }) {
+  const p = PALETTES[kind];
+  const stored = settings[p.field];
+  const [colors, setColors] = useState(stored);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => setColors(settings.toolbarColors), [settings.toolbarColors]);
+  useEffect(() => setColors(stored), [stored]);
+  const Noun = p.noun.charAt(0).toUpperCase() + p.noun.slice(1);
 
   /** Color pickers fire continuously while dragging, so persist on a short debounce. */
   const commit = (next: string[], immediate = false) => {
     setColors(next);
     window.clearTimeout(timer.current);
-    const run = () => void save({ toolbarColors: next }, "Toolbar colors saved");
+    const run = () => void save({ [p.field]: next }, `${p.title} saved`);
     if (immediate) run();
     else timer.current = window.setTimeout(run, 500);
   };
@@ -209,11 +245,10 @@ function ColorsSection({ settings, save }: { settings: Settings; save: SaveFn })
   };
 
   return (
-    <section className="card" aria-labelledby="colors-h">
-      <h2 id="colors-h">Toolbar colors</h2>
+    <section className="card" aria-labelledby={`${kind}-colors-h`}>
+      <h2 id={`${kind}-colors-h`}>{p.title}</h2>
       <p className="hint">
-        Up to {MAX_TOOLBAR_COLORS} colors. Position <em>n</em> is applied with <kbd>Ctrl</kbd>+<kbd>n</kbd> (or{" "}
-        <kbd>Alt</kbd>+<kbd>n</kbd>); <kbd>Ctrl</kbd>+<kbd>0</kbd> resets to the default text color.
+        Up to {MAX_TOOLBAR_COLORS} colors. {p.hint}
       </p>
       <ol className="color-list">
         {colors.map((c, i) => (
@@ -224,10 +259,16 @@ function ColorsSection({ settings, save }: { settings: Settings; save: SaveFn })
             <input
               type="color"
               value={c}
-              aria-label={`Color ${i + 1}`}
+              aria-label={`${Noun} ${i + 1}`}
               onChange={(e) => commit(colors.map((x, k) => (k === i ? e.target.value : x)))}
             />
-            <code>{c}</code>
+            {kind === "highlight" ? (
+              <span className="highlight-sample" style={{ backgroundColor: c }}>
+                Sample
+              </span>
+            ) : (
+              <code>{c}</code>
+            )}
             <span className="color-actions">
               <button type="button" className="icon-btn" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
                 <Icon name="chevronUp" size={16} />
@@ -244,7 +285,7 @@ function ColorsSection({ settings, save }: { settings: Settings; save: SaveFn })
               <button
                 type="button"
                 className="icon-btn"
-                aria-label={`Remove color ${i + 1}`}
+                aria-label={`Remove ${p.noun} ${i + 1}`}
                 disabled={colors.length <= 1}
                 onClick={() => commit(colors.filter((_, k) => k !== i), true)}
               >
@@ -259,11 +300,11 @@ function ColorsSection({ settings, save }: { settings: Settings; save: SaveFn })
           type="button"
           className="btn"
           disabled={colors.length >= MAX_TOOLBAR_COLORS}
-          onClick={() => commit([...colors, "#555555"], true)}
+          onClick={() => commit([...colors, p.added], true)}
         >
-          <Icon name="plus" size={16} /> Add color
+          <Icon name="plus" size={16} /> Add {p.noun}
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => commit([...DEFAULT_TOOLBAR_COLORS], true)}>
+        <button type="button" className="btn btn-ghost" onClick={() => commit([...p.defaults], true)}>
           Reset to defaults
         </button>
       </div>
@@ -603,6 +644,8 @@ const SHORTCUTS: [string, string][] = [
   ["Ctrl+click a link", "Open it in a new tab"],
   ["Ctrl+1 … Ctrl+5", "Apply toolbar color 1–5 (press again to remove). Alt+1…5 also works."],
   ["Ctrl+0", "Default text color"],
+  ["Ctrl+Shift+1 … Ctrl+Shift+5", "Highlight the selection with highlight color 1–5 (press again to remove). Alt+Shift+1…5 also works."],
+  ["Ctrl+Shift+0", "Remove the highlight"],
   ["1. then space", "Start a numbered list (any number sets the start)"],
   ["- then space", "Start a bulleted list"],
   ["Tab (right after the bullet/number)", "Nest the list item one level"],

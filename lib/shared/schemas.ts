@@ -18,6 +18,8 @@ export const STORAGE_PROVIDERS = ["server", "google_drive"] as const;
 
 /** Mid-tone defaults that stay legible on both light and dark backgrounds. */
 export const DEFAULT_TOOLBAR_COLORS = ["#d64541", "#2e86de", "#27ae60", "#e67e22", "#9b59b6"];
+/** Light marker shades; highlighted text is drawn dark on them in both themes. */
+export const DEFAULT_HIGHLIGHT_COLORS = ["#fff176", "#c5e1a5", "#b3e5fc", "#f8bbd0", "#ffcc80"];
 
 /** Curated Google Fonts offered when no Google Fonts API key is configured. */
 export const CURATED_FONTS = [
@@ -56,6 +58,7 @@ export const settingsSchema = z.object({
   fontFamily,
   fontSize: z.number().int().min(FONT_SIZE_MIN).max(FONT_SIZE_MAX),
   toolbarColors: z.array(hexColor).min(1).max(MAX_TOOLBAR_COLORS),
+  highlightColors: z.array(hexColor).min(1).max(MAX_TOOLBAR_COLORS),
   storageProvider: z.enum(STORAGE_PROVIDERS),
   driveFolderName: z.string().trim().min(1).max(255),
 });
@@ -70,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fontFamily: "Courier Prime",
   fontSize: 18,
   toolbarColors: DEFAULT_TOOLBAR_COLORS,
+  highlightColors: DEFAULT_HIGHLIGHT_COLORS,
   storageProvider: "server",
   driveFolderName: "Olive Writer",
 };
