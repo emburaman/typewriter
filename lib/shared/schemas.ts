@@ -200,6 +200,8 @@ export interface GoogleStatus {
   /** Server has GOOGLE_CLIENT_ID / SECRET / REDIRECT_URI configured. */
   configured: boolean;
   connected: boolean;
+  /** Google refused the stored token (expired or revoked): the user has to reconnect. */
+  needsReconnect: boolean;
   /** False when connected but the Drive permission was left unticked on Google's consent screen. */
   driveAccess: boolean;
   accountEmail: string | null;

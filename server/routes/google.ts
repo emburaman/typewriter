@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { HttpError } from "../errors.js";
+import { HttpError, loggableError } from "../errors.js";
 import { completeGoogleLogin, currentUser, startSession } from "../services/auth.js";
 import * as drive from "../services/googleDrive.js";
 import * as driveSync from "../services/driveSync.js";
@@ -83,7 +83,7 @@ googleCallbackRouter.get("/callback", async (req, res) => {
       await startSession(req, res, result);
       return res.redirect(303, "/");
     } catch (err) {
-      console.error("[auth] Google sign-in failed:", err);
+      console.error("[auth] Google sign-in failed:", loggableError(err));
       return go("/login", { error: "google", message: err instanceof HttpError ? err.message : "Google sign-in failed" });
     }
   }
@@ -98,7 +98,7 @@ googleCallbackRouter.get("/callback", async (req, res) => {
     await drive.completeDriveConnection(purpose.userId, q.code);
     return go("/settings", { google: "connected" });
   } catch (err) {
-    console.error("[google] Drive connection failed:", err);
+    console.error("[google] Drive connection failed:", loggableError(err));
     return go("/settings", { google: "error", message: err instanceof HttpError ? err.message : "Could not connect Google Drive" });
   }
 });

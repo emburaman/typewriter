@@ -49,11 +49,23 @@ export const apiErrorHandler: ErrorRequestHandler = (err: unknown, req, res, _ne
   }
 
   if (status >= 500) {
-    console.error(`[api] ${req.method} ${req.originalUrl} failed:`, err);
+    console.error(`[api] ${req.method} ${req.originalUrl} failed:`, loggableError(err));
   }
   res.status(status).json(body);
 };
 
 function isPayloadTooLarge(err: unknown): boolean {
   return typeof err === "object" && err !== null && "type" in err && err.type === "entity.too.large";
+}
+
+/**
+ * What to log for an error. Google client errors carry the whole request, including the user's
+ * refresh token in its body, so only their message and status are logged. Other errors keep
+ * their stack.
+ */
+export function loggableError(err: unknown): unknown {
+  if (typeof err !== "object" || err === null || !("config" in err || "response" in err)) return err;
+  const e = err as { message?: unknown; code?: unknown; status?: unknown };
+  const status = e.status ?? e.code;
+  return `${String(e.message)}${status === undefined ? "" : ` (HTTP ${String(status)})`}`;
 }

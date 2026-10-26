@@ -7,7 +7,7 @@ import {
   type DocumentRecord,
   type DocumentSaveResult,
 } from "../../lib/shared/schemas.js";
-import { badRequest, HttpError, notFound } from "../errors.js";
+import { badRequest, HttpError, loggableError, notFound } from "../errors.js";
 import * as documentsRepo from "../repositories/documentsRepository.js";
 import * as foldersRepo from "../repositories/foldersRepository.js";
 import * as settingsRepo from "../repositories/settingsRepository.js";
@@ -51,7 +51,7 @@ async function syncToDriveIfEnabled(userId: string, doc: DocumentRecord, mode: D
     await driveSync.uploadDocument(userId, doc);
     return { document: await requireDocument(userId, doc.id), drive: { status: "synced" } };
   } catch (err) {
-    console.error(`[documents] Drive sync failed for ${doc.id}:`, err);
+    console.error(`[documents] Drive sync failed for ${doc.id}:`, loggableError(err));
     const message = err instanceof Error ? err.message : "Google Drive sync failed";
     return { document: doc, drive: { status: "failed", message } };
   }

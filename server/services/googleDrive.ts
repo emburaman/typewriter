@@ -30,11 +30,25 @@ function requireDriveConfigured(): Buffer {
   return config.encryptionKey;
 }
 
+/**
+ * Users whose stored refresh token Google refused (invalid_grant), mapped to that encrypted token.
+ * Reconnecting stores a new token, which clears the state without bookkeeping. In memory only: after
+ * a restart the next Drive call finds out again.
+ */
+const refusedGrants = new Map<string, string>();
+
+/** Records that Google refused this user's current refresh token. */
+export async function markGrantRefused(userId: string): Promise<void> {
+  const token = (await googleRepo.getCredentials(userId))?.refreshTokenEnc;
+  if (token) refusedGrants.set(userId, token);
+}
+
 export async function getStatus(userId: string): Promise<GoogleStatus> {
   const creds = config.google.configured ? await googleRepo.getCredentials(userId) : null;
   return {
     configured: config.google.configured,
     connected: Boolean(creds?.refreshTokenEnc || creds?.accessTokenEnc),
+    needsReconnect: Boolean(creds?.refreshTokenEnc && refusedGrants.get(userId) === creds.refreshTokenEnc),
     driveAccess: hasDriveScope(creds?.scope),
     accountEmail: creds?.accountEmail ?? null,
     folderId: creds?.folderId ?? null,

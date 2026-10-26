@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { apiErrorHandler, HttpError, notFound } from "../../server/errors";
+import { apiErrorHandler, HttpError, loggableError, notFound } from "../../server/errors";
 
 function run(err: unknown) {
   const res = { status: vi.fn(), json: vi.fn() };
@@ -27,5 +27,23 @@ describe("apiErrorHandler", () => {
     const { status, body } = run(new Error("db password is hunter2"));
     expect(status).toBe(500);
     expect(JSON.stringify(body)).not.toContain("hunter2");
+  });
+});
+
+describe("loggableError", () => {
+  it("never logs a Google client error's request (it contains the refresh token)", () => {
+    const err = Object.assign(new Error("invalid_grant"), {
+      code: 400,
+      config: { data: { refresh_token: "1//secret-refresh-token" } },
+      response: { status: 400, data: { error: "invalid_grant" } },
+    });
+    const logged = loggableError(err);
+    expect(logged).toBe("invalid_grant (HTTP 400)");
+    expect(JSON.stringify(logged)).not.toContain("secret-refresh-token");
+  });
+
+  it("keeps other errors as they are (with their stack)", () => {
+    const err = new Error("boom");
+    expect(loggableError(err)).toBe(err);
   });
 });

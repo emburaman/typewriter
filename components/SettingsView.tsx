@@ -448,6 +448,17 @@ function StorageSection({ settings, save }: { settings: Settings; save: SaveFn }
             <p>
               Connected as <strong>{status?.accountEmail ?? "unknown account"}</strong>
             </p>
+            {status?.needsReconnect && (
+              <div className="warning-box" role="alert">
+                <p>
+                  Google Drive access has expired or was revoked, so documents aren&apos;t syncing with Drive. Your
+                  writing is still saved on the server. Reconnect to resume syncing.
+                </p>
+                <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void connect()}>
+                  Reconnect Google Drive
+                </button>
+              </div>
+            )}
             {status && !status.driveAccess && (
               <div className="warning-box" role="alert">
                 <p>

@@ -1,12 +1,17 @@
-import { HttpError } from "../errors.js";
+import { HttpError, loggableError } from "../errors.js";
 import * as documentsRepo from "../repositories/documentsRepository.js";
 import * as foldersRepo from "../repositories/foldersRepository.js";
 import * as googleRepo from "../repositories/googleRepository.js";
 import * as settingsRepo from "../repositories/settingsRepository.js";
 import { pullFromDrive, type PullResult, type PullStore } from "./drivePull.js";
 import { DriveTreeSync, type FolderStore } from "./driveTree.js";
-import { createDriveApi, createPullApi, isConnectedWithDriveAccess, toHtmlFile } from "./googleDrive.js";
-import { isInsufficientScopeError, MISSING_DRIVE_ACCESS_MESSAGE } from "./googleScopes.js";
+import { createDriveApi, createPullApi, getStatus, isConnectedWithDriveAccess, markGrantRefused, toHtmlFile } from "./googleDrive.js";
+import {
+  DRIVE_RECONNECT_MESSAGE,
+  isInsufficientScopeError,
+  isRevokedGrantError,
+  MISSING_DRIVE_ACCESS_MESSAGE,
+} from "./googleScopes.js";
 import type { DocumentRecord } from "../../lib/shared/schemas.js";
 
 /**
@@ -55,9 +60,13 @@ async function withTree<T>(userId: string, work: (ctx: TreeContext) => Promise<T
       return await work({ tree, fontFamily: settings.fontFamily, account });
     } catch (err) {
       if (isInsufficientScopeError(err)) throw new HttpError(403, "drive_scope_missing", MISSING_DRIVE_ACCESS_MESSAGE);
+      if (isRevokedGrantError(err)) {
+        await markGrantRefused(userId);
+        throw new HttpError(409, "drive_reconnect_required", DRIVE_RECONNECT_MESSAGE);
+      }
       if (err instanceof HttpError) throw err;
       // Google API errors: keep Google's explanation instead of a generic 500.
-      console.error("[drive] Google Drive request failed:", err);
+      console.error("[drive] Google Drive request failed:", loggableError(err));
       throw new HttpError(502, "google_drive_error", err instanceof Error ? err.message : String(err));
     }
   });
@@ -180,6 +189,7 @@ export function pull(userId: string): Promise<PullResult> {
 export async function pullIfDue(userId: string, minIntervalMs: number): Promise<PullResult | null> {
   if (Date.now() - (lastPull.get(userId) ?? 0) < minIntervalMs) return null;
   if (!(await isDriveSyncEnabled(userId))) return null;
+  if ((await getStatus(userId)).needsReconnect) return null; // nothing works until the user reconnects
   return pull(userId);
 }
 
@@ -206,7 +216,7 @@ export async function syncEverything(userId: string): Promise<SyncAllResult> {
         result.documents += 1;
       } catch (err) {
         if (isInsufficientScopeError(err)) throw err; // nothing else will work either
-        console.error(`[drive] sync of document ${doc.id} failed:`, err);
+        console.error(`[drive] sync of document ${doc.id} failed:`, loggableError(err));
         result.failed.push({ title: doc.title, message: err instanceof Error ? err.message : String(err) });
       }
     }
@@ -239,7 +249,7 @@ export function startDriveSyncLoop(): NodeJS.Timeout {
         }
       }
     } catch (err) {
-      console.error("[drive] background sync round failed:", err);
+      console.error("[drive] background sync round failed:", loggableError(err));
     } finally {
       loopRunning = false;
     }
@@ -257,7 +267,7 @@ export async function followUp(userId: string, task: () => Promise<unknown>): Pr
     await task();
     return undefined;
   } catch (err) {
-    console.error("[drive] follow-up sync failed:", err);
+    console.error("[drive] follow-up sync failed:", loggableError(err));
     const message = err instanceof Error ? err.message : String(err);
     return `Saved, but Google Drive wasn't updated: ${message}`;
   }

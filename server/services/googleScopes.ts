@@ -34,6 +34,21 @@ export function isInsufficientScopeError(err: unknown): boolean {
   );
 }
 
+/**
+ * True when Google refuses the stored refresh token ("invalid_grant": expired or revoked). That
+ * happens when the user removes the app's access in their Google account, after 7 days while the
+ * OAuth consent screen is in "Testing", or when Google resets tokens (e.g. a password change).
+ * Only reconnecting fixes it.
+ */
+export function isRevokedGrantError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { message?: unknown; response?: { data?: { error?: unknown } } };
+  return e.message === "invalid_grant" || e.response?.data?.error === "invalid_grant";
+}
+
+export const DRIVE_RECONNECT_MESSAGE =
+  "Google Drive access has expired or was revoked. In Settings → Storage, click Reconnect Google Drive.";
+
 export const MISSING_DRIVE_ACCESS_MESSAGE =
   "Google Drive access wasn't granted. In Settings → Storage, disconnect Google Drive and connect again, " +
   "and on Google's screen tick the box that lets the app see and edit the Drive files it creates.";

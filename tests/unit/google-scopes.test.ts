@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DRIVE_FILE_SCOPE, hasDriveScope, isInsufficientScopeError } from "../../server/services/googleScopes";
+import { DRIVE_FILE_SCOPE, hasDriveScope, isInsufficientScopeError, isRevokedGrantError } from "../../server/services/googleScopes";
 
 describe("hasDriveScope", () => {
   it("detects whether Drive file access was granted", () => {
@@ -29,5 +29,21 @@ describe("isInsufficientScopeError", () => {
     expect(isInsufficientScopeError({ code: 404, message: "File not found" })).toBe(false);
     expect(isInsufficientScopeError(new Error("network"))).toBe(false);
     expect(isInsufficientScopeError(null)).toBe(false);
+  });
+});
+
+describe("isRevokedGrantError", () => {
+  it("detects Google refusing an expired or revoked refresh token", () => {
+    const gaxios = Object.assign(new Error("invalid_grant"), {
+      response: { status: 400, data: { error: "invalid_grant", error_description: "Token has been expired or revoked." } },
+    });
+    expect(isRevokedGrantError(gaxios)).toBe(true);
+    expect(isRevokedGrantError({ response: { data: { error: "invalid_grant" } } })).toBe(true);
+  });
+
+  it("ignores other errors", () => {
+    expect(isRevokedGrantError(new Error("Request had insufficient authentication scopes."))).toBe(false);
+    expect(isRevokedGrantError({ response: { data: { error: { status: "PERMISSION_DENIED" } } } })).toBe(false);
+    expect(isRevokedGrantError(null)).toBe(false);
   });
 });

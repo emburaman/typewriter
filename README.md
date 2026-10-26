@@ -249,6 +249,20 @@ Avoid `docker compose down -v` for this. It also deletes the `mysql-dev-data` vo
 
 **Running on the host (`npm run dev`)** after pulling new code: run `npm install` first.
 
+**`[drive] … invalid_grant` / "Token has been expired or revoked" in the logs.** Google refused
+the stored Drive connection. Your writing is still saved on the server; only Drive syncing stops.
+Fix: *Settings → Storage → Reconnect Google Drive*. Common causes:
+
+- The Google app's consent screen is still in **Testing**: Google expires its refresh tokens after
+  **7 days**, so this comes back every week. Publish it (Google Auth Platform → Audience →
+  *Publish app*). The app only asks for `drive.file`, `openid`, `email` and `profile`, which
+  Google treats as non-sensitive. You may need to complete basic brand verification, but you
+  don't need a security review.
+- Access was removed at <https://myaccount.google.com/permissions>, the Google password changed,
+  or the OAuth client (ID/secret) was replaced.
+
+The app stops retrying in the background until you reconnect, and saves show the same message.
+
 ## Limitations and roadmap notes
 
 - Browsers show their own fixed wording in the "Leave site?" dialog. A page cannot add a
