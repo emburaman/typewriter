@@ -497,14 +497,14 @@ code {
 .editor-content {
   min-height: 50vh;
   outline: none;
-  line-height: 1.75;
+  line-height: 1.5;
   caret-color: var(--accent);
   white-space: pre-wrap;
   tab-size: 4;
   word-wrap: break-word;
 }
 .editor-content p {
-  margin: 0 0 0.9em;
+  margin: 0 0 1em;
 }
 .editor-content ul,
 .editor-content ol {
@@ -512,7 +512,7 @@ code {
   padding-left: 1.6em;
 }
 .editor-content li > p {
-  margin: 0.15em 0;
+  margin: 0 0.15em 1em;
 }
 .editor-content li > ul,
 .editor-content li > ol {
